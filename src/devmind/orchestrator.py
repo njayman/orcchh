@@ -281,16 +281,25 @@ class DriftEventListener:
         orchestrator: PolicyOrchestrator,
         trust_floor: float = 0.5,
         recovery_window_s: float = 30.0,
+        error_rate_ceiling: float = 0.15,
     ):
         self.orchestrator = orchestrator
         self.trust_floor = trust_floor
         self.recovery_window_s = recovery_window_s
+        self.error_rate_ceiling = error_rate_ceiling
         self._distress_since: dict[str, float] = {}
         self._queue: asyncio.Queue[tuple[str, EdgeContextReport, float]] = asyncio.Queue()
 
     def should_escalate(self, client_id: str, report: EdgeContextReport, now: float) -> bool:
-        distressed = report.operational_state in (OperationalState.DEGRADING, OperationalState.UNREACHABLE)
-        if not distressed or report.trust_score >= self.trust_floor:
+        state_distressed = report.operational_state in (OperationalState.DEGRADING, OperationalState.UNREACHABLE)
+        low_trust = report.trust_score < self.trust_floor
+        high_error = report.error_rate_1m > self.error_rate_ceiling
+        # multi-signal correlation: state distress alone must sustain trust_floor breach
+        # over recovery_window_s, but a simultaneous error-rate spike escalates immediately
+        if state_distressed and low_trust and high_error:
+            self._distress_since.pop(client_id, None)
+            return True
+        if not state_distressed or not low_trust:
             self._distress_since.pop(client_id, None)
             return False
         first_seen = self._distress_since.setdefault(client_id, now)
@@ -439,6 +448,11 @@ def demo() -> None:
     assert not listener.should_escalate("c1", degrading_low_trust, now=105.0)
     assert listener.should_escalate("c1", degrading_low_trust, now=111.0)
     assert not listener.should_escalate("c2", degrading_recovered, now=200.0)
+
+    degrading_high_error = EdgeContextReport(
+        operational_state=OperationalState.DEGRADING, trust_score=0.2, error_rate_1m=0.3
+    )
+    assert listener.should_escalate("c3", degrading_high_error, now=300.0)
 
     import tempfile
 
