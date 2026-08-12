@@ -10,13 +10,14 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
+import numpy as np
 import torch
 
 from devmind.agent import AgenticOrchestrator, PPONetwork
 from devmind.environment import InferenceGatewayEnv, ScenarioConfig
 from devmind.evaluation import EvalMetrics, average_metrics, make_env, ppo_policy, run_episode
 from devmind.models import EdgeContextReport, OperationalState
-from devmind.trainer import PPOTrainer
+from devmind.trainer import PPOTrainer, randomize_scenario
 
 
 class PolicyDecision(str, Enum):
@@ -162,14 +163,18 @@ class PolicyOrchestrator:
         ]
         return average_metrics(metrics_list)
 
-    def _train(self, scenario: ScenarioConfig, total_steps: int, init_state_dict: dict | None = None) -> PPONetwork:
+    def _train(
+        self, scenario: ScenarioConfig, total_steps: int, init_state_dict: dict | None = None, seed: int | None = None
+    ) -> PPONetwork:
         edge_model, cloud_model = self._models_for(scenario.task)
         env = InferenceGatewayEnv(scenario, edge_model=edge_model, cloud_model=cloud_model)
         trainer = PPOTrainer(env)
         if init_state_dict is not None:
             trainer.policy.load_state_dict(init_state_dict)
+        rng = np.random.default_rng(seed)
         step = 0
         while step < total_steps:
+            env.scenario = randomize_scenario(scenario, rng)
             trainer.collect_rollout(2048)
             trainer.train()
             step += 2048
@@ -291,7 +296,15 @@ class DriftEventListener:
         self._last_escalated: dict[str, float] = {}
         self._queue: asyncio.Queue[tuple[str, EdgeContextReport, float]] = asyncio.Queue()
 
+    def _prune_stale(self, now: float) -> None:
+        stale_before = now - 10 * self.recovery_window_s
+        for tracker in (self._distress_since, self._last_escalated):
+            stale = [cid for cid, t in tracker.items() if t < stale_before]
+            for cid in stale:
+                del tracker[cid]
+
     def should_escalate(self, client_id: str, report: EdgeContextReport, now: float) -> bool:
+        self._prune_stale(now)
         state_distressed = report.operational_state in (OperationalState.DEGRADING, OperationalState.UNREACHABLE)
         low_trust = report.trust_score < self.trust_floor
         high_error = report.error_rate_1m > self.error_rate_ceiling
@@ -453,6 +466,7 @@ def demo() -> None:
     assert not listener.should_escalate("c1", degrading_low_trust, now=100.0)
     assert not listener.should_escalate("c1", degrading_low_trust, now=105.0)
     assert listener.should_escalate("c1", degrading_low_trust, now=111.0)
+    assert "c1" in listener._last_escalated
     assert not listener.should_escalate("c2", degrading_recovered, now=200.0)
 
     degrading_high_error = EdgeContextReport(
@@ -462,6 +476,9 @@ def demo() -> None:
     assert not listener.should_escalate("c3", degrading_high_error, now=301.0)
     assert not listener.should_escalate("c3", degrading_high_error, now=309.9)
     assert listener.should_escalate("c3", degrading_high_error, now=310.0)
+
+    listener.should_escalate("c4", nominal, now=310.0 + 10 * listener.recovery_window_s + 1)
+    assert "c1" not in listener._last_escalated, "stale trackers must be pruned"
 
     import tempfile
 

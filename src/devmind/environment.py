@@ -300,7 +300,9 @@ class InferenceGatewayEnv(gym.Env):
     def _compute_reward(
         self, accuracy: float, latency: float, sla_budget: float, sla_met: bool, energy: float
     ) -> float:
-        w_accuracy, w_sla, w_energy, w_latency = self.scenario.reward_weights
+        weights = self.scenario.reward_weights
+        total_w = sum(weights) or 1.0
+        w_accuracy, w_sla, w_energy, w_latency = (w / total_w for w in weights)
         return (
             w_accuracy * accuracy
             + w_sla * (1.0 if sla_met else -0.5)
@@ -335,6 +337,11 @@ def demo() -> None:
 
     assert abs(r_accuracy_only - 1.0) < 1e-9, "accuracy-only weights should return raw accuracy"
     assert r_default != r_accuracy_only, "reward_weights must actually change the computed reward"
+
+    unnormalized = SimpleNamespace(scenario=SimpleNamespace(reward_weights=(0.8, 0.6, 0.4, 1.0)))
+    r_unnormalized = InferenceGatewayEnv._compute_reward(unnormalized, accuracy=1.0, latency=100.0, sla_budget=300.0, sla_met=True, energy=1.0)
+    assert r_unnormalized <= 1.0 + 1e-9, "weights that don't sum to 1 must be normalized, not saturate against a hard clip"
+
     print("environment self-check passed")
 
 

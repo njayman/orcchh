@@ -108,6 +108,8 @@ class AgenticOrchestrator:
     ENTROPY_FALLBACK_THRESHOLD = 0.9
     FALLBACK_THRESHOLD = 0.9
     OOD_ZSCORE_THRESHOLD = 4.0
+    QUERY_CALIBRATION_RISK_THRESHOLD = 0.2
+    QUERY_ERROR_RATE_RISK_THRESHOLD = 0.15
 
     def __init__(self, policy: PPONetwork | None = None, device: str = "cpu", state_stats_path: str | None = None):
         self.policy = policy or PPONetwork()
@@ -153,12 +155,19 @@ class AgenticOrchestrator:
             action = Action.ESCALATE_TO_CLOUD if confidence < self.FALLBACK_THRESHOLD else Action.ROUTE_TO_EDGE
             return action, fallback
         if action == Action.QUERY_EXTENDED_CONTEXT:
+            # The Gold vector is already fully computed before decide() runs (SilverEnricher
+            # masks calibration_delta/error_rate on the edge's real operational_state, not on
+            # agent action), so re-sampling reason() on the identical state would just be noise,
+            # not a genuinely informed second decision. Instead, spend the perception cost on
+            # actually consulting the extended MCP skills and route on their real content.
             mcp = MCPSkillInterface(gold)
             self.act(action, mcp)
-            action, _ = self.reason(gold)
-            if action == Action.QUERY_EXTENDED_CONTEXT:
-                action = Action.ROUTE_TO_EDGE
-            return Action(action), False
+            calibration_delta = mcp.call("get_edge_calibration_delta")
+            error_rate = mcp.call("get_edge_error_rate")
+            high_risk = (
+                calibration_delta is not None and calibration_delta > self.QUERY_CALIBRATION_RISK_THRESHOLD
+            ) or (error_rate is not None and error_rate > self.QUERY_ERROR_RATE_RISK_THRESHOLD)
+            return (Action.ESCALATE_TO_CLOUD if high_risk else Action.ROUTE_TO_EDGE), False
         return Action(action), False
 
     def reflect(self, latency_ms: float, sla_met: bool, accuracy: float, tier: str) -> None:
@@ -202,16 +211,24 @@ def demo() -> None:
         no_stats_orch = AgenticOrchestrator()
         assert not no_stats_orch.is_ood(far_out)
 
-    gold = GoldStateVector(slots=np.full(13, 0.5, dtype=np.float32))
+    querying = AgenticOrchestrator(policy=_ScriptedPolicy([(Action.QUERY_EXTENDED_CONTEXT, 0.1)]))
+    revealed_mask = np.ones(13, dtype=np.float32)
 
-    re_decides = AgenticOrchestrator(policy=_ScriptedPolicy([(Action.QUERY_EXTENDED_CONTEXT, 0.1), (Action.ESCALATE_TO_CLOUD, 0.1)]))
-    action, fallback = re_decides.decide(gold)
-    assert action == Action.ESCALATE_TO_CLOUD and not fallback, "QUERY should trigger a second reason() call"
-    assert re_decides.policy._calls == 2, "decide() must call reason() twice on a QUERY action"
+    low_risk_slots = np.full(13, 0.5, dtype=np.float32)
+    low_risk_slots[10] = 0.05  # calibration_delta, below risk threshold
+    low_risk_slots[11] = 0.05  # error_rate_1m, below risk threshold
+    action, fallback = querying.decide(GoldStateVector(slots=low_risk_slots, mask=revealed_mask))
+    assert action == Action.ROUTE_TO_EDGE and not fallback, "QUERY with low calibration/error risk should route to edge"
 
-    avoids_loop = AgenticOrchestrator(policy=_ScriptedPolicy([(Action.QUERY_EXTENDED_CONTEXT, 0.1), (Action.QUERY_EXTENDED_CONTEXT, 0.1)]))
-    action, fallback = avoids_loop.decide(gold)
-    assert action == Action.ROUTE_TO_EDGE, "a second QUERY must not loop, falls back to ROUTE_TO_EDGE"
+    high_risk_slots = np.full(13, 0.5, dtype=np.float32)
+    high_risk_slots[10] = 0.9  # calibration_delta, above risk threshold
+    action, fallback = querying.decide(GoldStateVector(slots=high_risk_slots, mask=revealed_mask))
+    assert action == Action.ESCALATE_TO_CLOUD and not fallback, "QUERY revealing high calibration_delta must escalate"
+
+    masked_slots = np.full(13, 0.5, dtype=np.float32)
+    masked_slots[10] = 0.9  # would be high risk, but not actually available (mask=0, GoldStateVector default)
+    action, fallback = querying.decide(GoldStateVector(slots=masked_slots))
+    assert action == Action.ROUTE_TO_EDGE, "QUERY with masked-out extended slots has no signal to escalate on"
 
     print("agent self-check passed")
 
