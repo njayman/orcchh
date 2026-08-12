@@ -7,7 +7,7 @@ import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
 
-from devmind.dataset import JigsawDataset
+from devmind.dataset import load_task_dataset
 from devmind.edge import EdgeDevice
 from devmind.medallion import DynamicMetricRegistry, GoldNormalizer, MetricSource, SilverEnricher
 from devmind.model_clients import BERTLargeCloud, DistilBERTEdge, InferenceResult
@@ -24,6 +24,7 @@ from devmind.models import (
 @dataclass
 class ScenarioConfig:
     name: str = "steady"
+    task: str = "toxicity"
     base_rate: float = 4000.0
     burst_rate: float = 4000.0
     burst_start_frac: float = 1.1
@@ -39,13 +40,14 @@ class ScenarioConfig:
     sla_budget_ms: float = 300.0
 
     @classmethod
-    def steady(cls) -> ScenarioConfig:
-        return cls(name="steady", base_rate=4000, burst_rate=4000)
+    def steady(cls, task: str = "toxicity") -> ScenarioConfig:
+        return cls(name="steady", task=task, base_rate=4000, burst_rate=4000)
 
     @classmethod
-    def bursty(cls) -> ScenarioConfig:
+    def bursty(cls, task: str = "toxicity") -> ScenarioConfig:
         return cls(
             name="bursty",
+            task=task,
             base_rate=4000,
             burst_rate=22000,
             burst_start_frac=0.2,
@@ -53,9 +55,10 @@ class ScenarioConfig:
         )
 
     @classmethod
-    def degraded_network(cls) -> ScenarioConfig:
+    def degraded_network(cls, task: str = "toxicity") -> ScenarioConfig:
         return cls(
             name="degraded_network",
+            task=task,
             base_rate=4000,
             burst_rate=4000,
             rtt_degraded=800.0,
@@ -64,9 +67,10 @@ class ScenarioConfig:
         )
 
     @classmethod
-    def held_out(cls) -> ScenarioConfig:
+    def held_out(cls, task: str = "toxicity") -> ScenarioConfig:
         return cls(
             name="held_out",
+            task=task,
             base_rate=2000,
             burst_rate=30000,
             burst_start_frac=0.15,
@@ -126,10 +130,10 @@ class InferenceGatewayEnv(gym.Env):
         self._bronze_registry = DynamicMetricRegistry()
         self._setup_registry()
 
-        self._dataset = JigsawDataset(max_samples=max_samples)
+        self._dataset = load_task_dataset(self.scenario.task, max_samples=max_samples)
         self._episode_length = max(len(self._dataset.test), 1)
-        self._edge_model = edge_model or DistilBERTEdge()
-        self._cloud_model = cloud_model or BERTLargeCloud()
+        self._edge_model = edge_model or DistilBERTEdge(task=self.scenario.task)
+        self._cloud_model = cloud_model or BERTLargeCloud(task=self.scenario.task)
 
         self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(13,), dtype=np.float32)
         self.action_space = spaces.Discrete(3)
@@ -237,7 +241,7 @@ class InferenceGatewayEnv(gym.Env):
         sample = samples[idx]
         self._state._sample_idx += 1
         text = sample.text
-        true_label = sample.toxic
+        true_label = sample.label
         sla = self.scenario.sla_budget_ms
 
         if action in (Action.ROUTE_TO_EDGE, Action.QUERY_EXTENDED_CONTEXT):

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from contextlib import asynccontextmanager
 
 import uvicorn
@@ -25,7 +26,7 @@ class PredictResponse(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.model = BERTLargeCloud()
+    app.state.model = BERTLargeCloud(task=os.environ.get("DEVMIND_TASK", "toxicity"))
     yield
 
 
@@ -50,7 +51,8 @@ async def health() -> dict:
 
 
 def main() -> None:
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    port = int(os.environ.get("DEVMIND_PORT", "8001"))
+    uvicorn.run(app, host="0.0.0.0", port=port)
 
 
 if __name__ == "__main__":

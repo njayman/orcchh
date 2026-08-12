@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import os
 import time
 import uuid
@@ -70,7 +71,8 @@ async def _heartbeat_loop(edge: EdgeDevice, monitor: ResourceMonitor) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.request_times = []
-    edge_model = DistilBERTEdge()
+    task = os.environ.get("DEVMIND_TASK", "toxicity")
+    edge_model = DistilBERTEdge(task=task)
     cloud_client = CloudClient(base_url=os.environ.get("DEVMIND_CLOUD_URL", "http://localhost:8001"))
     edge = EdgeDevice()
     registry = DynamicMetricRegistry()
@@ -82,9 +84,16 @@ async def lifespan(app: FastAPI):
 
     silver = SilverEnricher()
     gold = GoldNormalizer()
-    agent = AgenticOrchestrator(_load_policy())
+    stats_path = os.environ.get(
+        "DEVMIND_STATE_STATS_PATH", os.path.join(os.path.dirname(_DEFAULT_POLICY_PATH), "state_stats.json")
+    )
+    agent = AgenticOrchestrator(_load_policy(), state_stats_path=stats_path)
     client_id = os.environ.get("DEVMIND_CLIENT_ID", "default")
-    controller = CascadeController(agent, edge, registry, silver, gold, edge_model, cloud_client, client_id=client_id)
+    action_log_path = os.environ.get("DEVMIND_ACTION_LOG_PATH", "docs/evaluation/request_log.jsonl")
+    controller = CascadeController(
+        agent, edge, registry, silver, gold, edge_model, cloud_client,
+        client_id=client_id, action_log_path=action_log_path,
+    )
     app.state.controller = controller
     app.state.edge = edge
 
@@ -116,6 +125,17 @@ async def infer(req: InferenceRequest) -> InferenceResponse:
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok", "service": "devmind-gateway"}
+
+
+@app.get("/actions")
+async def recent_actions(n: int = 50) -> list[dict]:
+    controller: CascadeController = app.state.controller
+    path = controller.action_log_path
+    if not path or not os.path.exists(path):
+        return []
+    with open(path) as f:
+        lines = [line for line in f if line.strip()]
+    return [json.loads(line) for line in lines[-n:]]
 
 
 @app.get("/edge/status")

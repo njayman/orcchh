@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import os
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -54,6 +57,7 @@ class CascadeController:
         edge_timeout_s: float = 2.0,
         client_id: str = "default",
         drift_listener: DriftEventListener | None = None,
+        action_log_path: str | None = None,
     ):
         self.agent = agent
         self.edge = edge
@@ -65,6 +69,7 @@ class CascadeController:
         self.edge_timeout_s = edge_timeout_s
         self.client_id = client_id
         self.drift_listener = drift_listener
+        self.action_log_path = action_log_path
 
     async def process(
         self,
@@ -101,6 +106,8 @@ class CascadeController:
         sla_met = latency <= bronze.sla_budget_ms
         self.agent.reflect(latency, sla_met, accuracy, tier)
         self.edge.update_from_outcome(latency, sla_met, accuracy)
+        if self.action_log_path:
+            loop.run_in_executor(None, self._log_action, request_id, action, tier, latency, sla_met, accuracy, fallback)
         return RequestOutcome(
             request_id=request_id,
             tier=tier,
@@ -113,6 +120,26 @@ class CascadeController:
             sla_margin_ms=report.sla_margin_ms,
             trust_score=report.trust_score,
         )
+
+    def _log_action(
+        self, request_id: str, action: Action, tier: str, latency_ms: float, sla_met: bool, accuracy: float, fallback: bool
+    ) -> None:
+        if not self.action_log_path:
+            return
+        entry = {
+            "timestamp": time.time(),
+            "client": self.client_id,
+            "request_id": request_id,
+            "action": action.name,
+            "tier": tier,
+            "latency_ms": latency_ms,
+            "sla_met": sla_met,
+            "accuracy": accuracy,
+            "fallback_triggered": fallback,
+        }
+        os.makedirs(os.path.dirname(self.action_log_path), exist_ok=True)
+        with open(self.action_log_path, "a") as f:
+            f.write(json.dumps(entry) + "\n")
 
     async def _unreachable_fallback(
         self, request_id: str, text: str, true_label: int | None, sla_budget_ms: float
@@ -145,11 +172,20 @@ class CascadeController:
         bronze: BronzeMetricSnapshot,
     ) -> tuple[str, float, float]:
         if action == Action.ESCALATE_TO_CLOUD:
-            cloud_result = await self.cloud_client.predict(text, true_label)
-            accuracy = float(cloud_result.is_correct) if true_label is not None else (
-                0.5 + 0.5 * cloud_result.confidence
+            for attempt in range(2):
+                try:
+                    cloud_result = await self.cloud_client.predict(text, true_label)
+                    accuracy = float(cloud_result.is_correct) if true_label is not None else (
+                        0.5 + 0.5 * cloud_result.confidence
+                    )
+                    return "cloud", cloud_result.latency_ms, accuracy
+                except Exception:
+                    if attempt == 1:
+                        break
+            accuracy = float(edge_result.is_correct) if true_label is not None else (
+                0.5 + 0.5 * bronze.edge_context.confidence_calibrated
             )
-            return "cloud", cloud_result.latency_ms, accuracy
+            return "edge_fallback_cloud_unreachable", edge_result.latency_ms, accuracy
         accuracy = float(edge_result.is_correct) if true_label is not None else (
             0.5 + 0.5 * bronze.edge_context.confidence_calibrated
         )

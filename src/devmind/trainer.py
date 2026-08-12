@@ -144,26 +144,38 @@ class PPOTrainer:
         return torch.tensor(advantages, device=self.device)
 
 
-def train_agent(scenario: ScenarioConfig, total_steps: int = 50_000) -> PPONetwork:
+def train_agent(scenario: ScenarioConfig, total_steps: int = 50_000) -> tuple[PPONetwork, np.ndarray]:
     env = InferenceGatewayEnv(scenario)
     trainer = PPOTrainer(env)
     step = 0
+    seen_states: list[np.ndarray] = []
     pbar = tqdm(total=total_steps, desc="Training PPO")
     while step < total_steps:
         trainer.collect_rollout(2048)
+        seen_states.extend(trainer.buffer.states)
         metrics = trainer.train()
         step += 2048
         pbar.update(2048)
         pbar.set_postfix(loss=f"{metrics['loss']:.4f}")
     pbar.close()
-    return trainer.policy
+    return trainer.policy, np.stack(seen_states, axis=0)
+
+
+def save_state_stats(states: np.ndarray, path: str) -> None:
+    import json
+
+    mean = states.mean(axis=0)
+    std = np.maximum(states.std(axis=0), 1e-6)
+    with open(path, "w") as f:
+        json.dump({"mean": mean.tolist(), "std": std.tolist()}, f)
 
 
 def main() -> None:
     print("Training PPO agent on steady scenario...")
-    policy = train_agent(ScenarioConfig.steady())
+    policy, states = train_agent(ScenarioConfig.steady())
     torch.save(policy.state_dict(), "ppo_policy.pt")
-    print("Saved ppo_policy.pt")
+    save_state_stats(states, "state_stats.json")
+    print("Saved ppo_policy.pt and state_stats.json")
 
 
 if __name__ == "__main__":

@@ -97,11 +97,11 @@ gcloud compute ssh "$CLOUD_NAME" --zone="$CLOUD_ZONE" --command="
   set -e
   command -v docker &>/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq docker.io)
   cd ~/devmind-code
-  sudo docker build -q -f Dockerfile.cloud -t devmind-cloud .
-  sudo docker build -q -f Dockerfile.orchestrator -t devmind-orchestrator .
+  DOCKER_BUILDKIT=1 sudo -E docker build -q -f Dockerfile.cloud -t devmind-cloud .
+  DOCKER_BUILDKIT=1 sudo -E docker build -q -f Dockerfile.orchestrator -t devmind-orchestrator .
   sudo docker rm -f devmind-cloud devmind-orchestrator 2>/dev/null || true
   sudo docker run -d --restart unless-stopped -p 8001:8001 --name devmind-cloud devmind-cloud
-  sudo docker run -d --restart unless-stopped -p 8002:8002 --name devmind-orchestrator devmind-orchestrator
+  mkdir -p ~/devmind-state/policy_library ~/devmind-state/evaluation && sudo docker run -d --restart unless-stopped -p 8002:8002 -v ~/devmind-state/policy_library:/app/policy_library -v ~/devmind-state/evaluation:/app/docs/evaluation --name devmind-orchestrator devmind-orchestrator
 "
 
 echo "== Building + running containers on $NEAR_NAME (nhs, streamforge, newco) =="
@@ -109,7 +109,7 @@ gcloud compute ssh "$NEAR_NAME" --zone="$NEAR_ZONE" --command="
   set -e
   command -v docker &>/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq docker.io)
   cd ~/devmind-code
-  sudo docker build -q -f Dockerfile.gateway -t devmind-gateway .
+  DOCKER_BUILDKIT=1 sudo -E docker build -q -f Dockerfile.gateway -t devmind-gateway .
   for spec in 'gw-nhs:8000:client_nhs' 'gw-streamforge:8010:client_streamforge' 'gw-newco:8020:client_newco'; do
     IFS=: read -r cname port client <<< \"\$spec\"
     sudo docker rm -f \"\$cname\" 2>/dev/null || true
@@ -124,7 +124,7 @@ gcloud compute ssh "$FAR_NAME" --zone="$FAR_ZONE" --command="
   set -e
   command -v docker &>/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq docker.io)
   cd ~/devmind-code
-  sudo docker build -q -f Dockerfile.gateway -t devmind-gateway .
+  DOCKER_BUILDKIT=1 sudo -E docker build -q -f Dockerfile.gateway -t devmind-gateway .
   sudo docker rm -f gw-babcock 2>/dev/null || true
   sudo docker run -d --restart unless-stopped -p 8000:8000 \
     -e DEVMIND_CLOUD_URL=http://${CLOUD_IP}:8001 -e DEVMIND_CLIENT_ID=client_babcock -e DEVMIND_PORT=8000 \

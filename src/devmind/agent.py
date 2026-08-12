@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import os
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -105,13 +107,21 @@ class MCPSkillInterface:
 class AgenticOrchestrator:
     ENTROPY_FALLBACK_THRESHOLD = 0.9
     FALLBACK_THRESHOLD = 0.9
+    OOD_ZSCORE_THRESHOLD = 4.0
 
-    def __init__(self, policy: PPONetwork | None = None, device: str = "cpu"):
+    def __init__(self, policy: PPONetwork | None = None, device: str = "cpu", state_stats_path: str | None = None):
         self.policy = policy or PPONetwork()
         self.device = torch.device(device)
         self.policy.to(self.device)
         self.policy.eval()
         self.log_buffer: list[dict[str, Any]] = []
+        self.state_mean: np.ndarray | None = None
+        self.state_std: np.ndarray | None = None
+        if state_stats_path and os.path.exists(state_stats_path):
+            with open(state_stats_path) as f:
+                stats = json.load(f)
+            self.state_mean = np.array(stats["mean"])
+            self.state_std = np.array(stats["std"])
 
     def perceive(self, gold: GoldStateVector) -> PerceptionCache:
         mcp = MCPSkillInterface(gold)
@@ -120,6 +130,12 @@ class AgenticOrchestrator:
     def reason(self, gold: GoldStateVector) -> tuple[int, float]:
         state = torch.from_numpy(gold.slots).float().unsqueeze(0).to(self.device)
         return self.policy.get_action_and_entropy(state)
+
+    def is_ood(self, gold: GoldStateVector) -> bool:
+        if self.state_mean is None:
+            return False
+        z = np.abs((gold.slots - self.state_mean) / self.state_std)
+        return bool(z.max() > self.OOD_ZSCORE_THRESHOLD)
 
     def act(self, action: int, mcp: MCPSkillInterface) -> Action:
         if action == Action.QUERY_EXTENDED_CONTEXT:
@@ -131,7 +147,7 @@ class AgenticOrchestrator:
 
     def decide(self, gold: GoldStateVector) -> tuple[Action, bool]:
         action, entropy = self.reason(gold)
-        fallback = entropy > self.ENTROPY_FALLBACK_THRESHOLD
+        fallback = entropy > self.ENTROPY_FALLBACK_THRESHOLD or self.is_ood(gold)
         if fallback:
             confidence = gold[0]
             action = Action.ESCALATE_TO_CLOUD if confidence < self.FALLBACK_THRESHOLD else Action.ROUTE_TO_EDGE
@@ -144,3 +160,28 @@ class AgenticOrchestrator:
         self.log_buffer.append(
             {"latency_ms": latency_ms, "sla_met": sla_met, "accuracy": accuracy, "tier": tier}
         )
+
+
+def demo() -> None:
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        stats_path = f"{tmp}/state_stats.json"
+        with open(stats_path, "w") as f:
+            json.dump({"mean": [0.5] * 13, "std": [0.1] * 13}, f)
+
+        orch = AgenticOrchestrator(state_stats_path=stats_path)
+        in_distribution = GoldStateVector(slots=np.full(13, 0.5, dtype=np.float32))
+        far_out = GoldStateVector(slots=np.full(13, 5.0, dtype=np.float32))
+
+        assert not orch.is_ood(in_distribution)
+        assert orch.is_ood(far_out)
+
+        no_stats_orch = AgenticOrchestrator()
+        assert not no_stats_orch.is_ood(far_out)
+
+    print("agent self-check passed")
+
+
+if __name__ == "__main__":
+    demo()

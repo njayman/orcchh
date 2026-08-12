@@ -10,8 +10,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
+from devmind.dataset import TASK_DATASETS
 from devmind.environment import ScenarioConfig
-from devmind.model_clients import BERTLargeCloud, DistilBERTEdge
 from devmind.orchestrator import PolicyOrchestrator
 
 _PRESETS = {
@@ -23,6 +23,8 @@ _PRESETS = {
 
 class ClientRequest(BaseModel):
     client_id: str
+    service_id: str | None = None
+    task: str = "toxicity"
     scenario: str = "steady"
     base_rate: float = 4000.0
     burst_rate: float = 4000.0
@@ -32,16 +34,23 @@ class ClientRequest(BaseModel):
     edge_degrade_prob: float = 0.02
     max_samples: int = 200
 
+    @property
+    def onboarding_id(self) -> str:
+        return f"{self.client_id}.{self.service_id}" if self.service_id else self.client_id
+
 
 def _scenario_from_request(req: ClientRequest) -> ScenarioConfig:
+    if req.task not in TASK_DATASETS:
+        raise HTTPException(400, f"unknown task '{req.task}', choose from {list(TASK_DATASETS)}")
     if req.scenario in _PRESETS:
-        base = _PRESETS[req.scenario]()
-        base.name = req.client_id
+        base = _PRESETS[req.scenario](task=req.task)
+        base.name = req.onboarding_id
         return base
     if req.scenario != "custom":
         raise HTTPException(400, f"unknown scenario '{req.scenario}', use steady/bursty/degraded_network/custom")
     return ScenarioConfig(
-        name=req.client_id,
+        name=req.onboarding_id,
+        task=req.task,
         base_rate=req.base_rate,
         burst_rate=req.burst_rate,
         rtt_base=req.rtt_base,
@@ -56,8 +65,6 @@ async def lifespan(app: FastAPI):
     orch = PolicyOrchestrator(
         library_dir=os.environ.get("DEVMIND_POLICY_LIBRARY_DIR", "policy_library"),
         log_path=os.environ.get("DEVMIND_DECISION_LOG", "docs/evaluation/orchestrator_decisions.jsonl"),
-        edge_model=DistilBERTEdge(),
-        cloud_model=BERTLargeCloud(),
         fine_tune_steps=int(os.environ.get("DEVMIND_FINE_TUNE_STEPS", "2000")),
         train_new_steps=int(os.environ.get("DEVMIND_TRAIN_NEW_STEPS", "8000")),
         eval_n_runs=1,
@@ -85,28 +92,90 @@ async def list_clients() -> list[dict]:
     ]
 
 
-@app.get("/decisions")
-async def list_decisions() -> list[dict]:
+def _fmt_pct(x: float | None) -> str:
+    return "-" if x is None else f"{x * 100:.1f}%"
+
+
+def _fmt_num(x: float | None) -> str:
+    return "-" if x is None else f"{x:.2f}"
+
+
+@app.get("/decisions", response_class=HTMLResponse)
+async def list_decisions() -> str:
     orch: PolicyOrchestrator = app.state.orchestrator
-    if not os.path.exists(orch.log_path):
-        return []
     entries = []
-    with open(orch.log_path) as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                entries.append(json.loads(line))
-    return entries
+    if os.path.exists(orch.log_path):
+        with open(orch.log_path) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    entries.append(json.loads(line))
+    rows = ""
+    for row in reversed(entries):
+        if "decision" not in row:
+            continue
+        m = (row.get("candidates_evaluated") or {}).get(row.get("policy_assigned"), {})
+        rows += (
+            "<tr>"
+            f"<td>{row.get('timestamp')}</td><td>{row.get('client')}</td><td>{row.get('task', '-')}</td>"
+            f"<td>{row.get('decision')}</td><td>{row.get('policy_assigned')}</td>"
+            f"<td>{_fmt_num(m.get('accuracy'))}</td><td>{_fmt_pct(m.get('sla_violation_rate'))}</td>"
+            f"<td>{_fmt_pct(m.get('escalation_rate'))}</td><td>{_fmt_num(m.get('trust_score'))}</td>"
+            f"<td>{row.get('dominant_signal')}</td><td>{row.get('trigger', 'onboarding')}</td>"
+            "</tr>"
+        )
+    return (
+        '<table id="decisions-table">'
+        "<thead><tr>"
+        "<th>Timestamp</th><th>Client</th><th>Task</th><th>Decision</th><th>Policy assigned</th>"
+        "<th>Accuracy</th><th>SLA violation</th><th>Escalation</th><th>Trust</th>"
+        "<th>Dominant signal</th><th>Trigger</th>"
+        f"</tr></thead><tbody>{rows}</tbody></table>"
+    )
+
+
+@app.get("/recalibrations", response_class=HTMLResponse)
+async def list_recalibrations() -> str:
+    orch: PolicyOrchestrator = app.state.orchestrator
+    entries = []
+    if os.path.exists(orch.log_path):
+        with open(orch.log_path) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    entries.append(json.loads(line))
+    rows = ""
+    for row in reversed(entries):
+        if row.get("event") != "threshold_recalibrated":
+            continue
+        old, new = row.get("old_thresholds", {}), row.get("new_thresholds", {})
+        rows += (
+            "<tr>"
+            f"<td>{row.get('timestamp')}</td><td>{_fmt_pct(row.get('false_reuse_rate'))}</td>"
+            f"<td>{_fmt_pct(old.get('max_sla_violation_rate'))} → {_fmt_pct(new.get('max_sla_violation_rate'))}</td>"
+            f"<td>{_fmt_pct(old.get('min_accuracy'))} → {_fmt_pct(new.get('min_accuracy'))}</td>"
+            f"<td>{_fmt_pct(old.get('max_escalation_rate'))} → {_fmt_pct(new.get('max_escalation_rate'))}</td>"
+            f"<td>{row.get('changed')}</td>"
+            "</tr>"
+        )
+    return (
+        '<table id="recalibrations-table">'
+        "<thead><tr>"
+        "<th>Timestamp</th><th>False reuse rate</th><th>SLA violation cap</th>"
+        "<th>Min accuracy</th><th>Escalation cap</th><th>Changed</th>"
+        f"</tr></thead><tbody>{rows}</tbody></table>"
+    )
 
 
 @app.post("/clients")
 async def add_client(req: ClientRequest) -> dict:
     orch: PolicyOrchestrator = app.state.orchestrator
     scenario = _scenario_from_request(req)
+    oid = req.onboarding_id
     loop = asyncio.get_running_loop()
-    decision = await loop.run_in_executor(None, orch.onboard, req.client_id, scenario, req.max_samples)
-    assigned = next(pid for pid, rec in orch.library.items() if req.client_id in rec.clients_assigned)
-    return {"client_id": req.client_id, "decision": decision.value, "policy_assigned": assigned}
+    decision = await loop.run_in_executor(None, orch.onboard, oid, scenario, req.max_samples)
+    assigned = next(pid for pid, rec in orch.library.items() if oid in rec.clients_assigned)
+    return {"client_id": oid, "task": req.task, "decision": decision.value, "policy_assigned": assigned}
 
 
 @app.get("/health")
@@ -136,6 +205,15 @@ th, td { text-align: left; border-bottom: 1px solid #ccc; padding: 0.4rem; font-
 
 <form id="add-form">
   <label>Client ID <input name="client_id" required></label>
+  <label>Service ID (optional -- multiple services per client)<input name="service_id" placeholder="e.g. triage, sentiment-feed"></label>
+  <label>Task
+    <select name="task">
+      <option value="toxicity">toxicity (Jigsaw)</option>
+      <option value="sentiment">sentiment (SST-2)</option>
+      <option value="spam">spam (SMS Spam)</option>
+      <option value="topic">topic (AG News)</option>
+    </select>
+  </label>
   <label>Scenario
     <select name="scenario" id="scenario-select">
       <option value="steady">steady</option>
@@ -163,16 +241,11 @@ th, td { text-align: left; border-bottom: 1px solid #ccc; padding: 0.4rem; font-
 </table>
 
 <h1>Decision Log</h1>
-<div style="overflow-x:auto">
-<table id="decisions-table">
-  <thead><tr>
-    <th>Timestamp</th><th>Client</th><th>Decision</th><th>Policy assigned</th>
-    <th>Accuracy</th><th>SLA violation</th><th>Escalation</th><th>Trust</th>
-    <th>Dominant signal</th><th>Trigger</th>
-  </tr></thead>
-  <tbody></tbody>
-</table>
-</div>
+<div id="decisions-container" style="overflow-x:auto"></div>
+
+<h1>Threshold Recalibrations</h1>
+<p style="font-size:0.85rem;color:#666">Governance-layer self-improvement: tolerance thresholds adjusted from the orchestrator's own false-reuse track record, every 5 onboarding calls.</p>
+<div id="recalibrations-container" style="overflow-x:auto"></div>
 
 <script>
 const scenarioSelect = document.getElementById("scenario-select");
@@ -193,30 +266,14 @@ async function refreshClients() {
   }
 }
 
-function fmtPct(x) { return x === undefined ? "-" : (x * 100).toFixed(1) + "%"; }
-function fmtNum(x) { return x === undefined ? "-" : x.toFixed(2); }
-
 async function refreshDecisions() {
   const res = await fetch("/decisions");
-  const rows = await res.json();
-  const tbody = document.querySelector("#decisions-table tbody");
-  tbody.innerHTML = "";
-  for (const row of rows.slice().reverse()) {
-    const m = (row.candidates_evaluated && row.candidates_evaluated[row.policy_assigned]) || {};
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${row.timestamp}</td>
-      <td>${row.client}</td>
-      <td>${row.decision}</td>
-      <td>${row.policy_assigned}</td>
-      <td>${fmtNum(m.accuracy)}</td>
-      <td>${fmtPct(m.sla_violation_rate)}</td>
-      <td>${fmtPct(m.escalation_rate)}</td>
-      <td>${fmtNum(m.trust_score)}</td>
-      <td>${row.dominant_signal}</td>
-      <td>${row.trigger || "onboarding"}</td>`;
-    tbody.appendChild(tr);
-  }
+  document.getElementById("decisions-container").innerHTML = await res.text();
+}
+
+async function refreshRecalibrations() {
+  const res = await fetch("/recalibrations");
+  document.getElementById("recalibrations-container").innerHTML = await res.text();
 }
 
 document.getElementById("add-form").addEventListener("submit", async (e) => {
@@ -234,10 +291,12 @@ document.getElementById("add-form").addEventListener("submit", async (e) => {
   resultEl.textContent = res.ok ? JSON.stringify(data, null, 2) : `Error: ${data.detail}`;
   await refreshClients();
   await refreshDecisions();
+  await refreshRecalibrations();
 });
 
 refreshClients();
 refreshDecisions();
+refreshRecalibrations();
 </script>
 </body>
 </html>
