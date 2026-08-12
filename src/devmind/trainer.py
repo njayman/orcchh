@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -144,13 +145,39 @@ class PPOTrainer:
         return torch.tensor(advantages, device=self.device)
 
 
-def train_agent(scenario: ScenarioConfig, total_steps: int = 50_000) -> tuple[PPONetwork, np.ndarray]:
+def randomize_scenario(base: ScenarioConfig, rng: np.random.Generator) -> ScenarioConfig:
+    return dataclasses.replace(
+        base,
+        base_rate=float(rng.uniform(2000, 6000)),
+        burst_rate=float(rng.uniform(6000, 25000)),
+        burst_start_frac=float(rng.uniform(0.1, 0.5)),
+        burst_duration_frac=float(rng.uniform(0.2, 0.6)),
+        degraded_start_frac=float(rng.uniform(0.0, 0.3)),
+        degraded_duration_frac=float(rng.uniform(0.3, 1.0)),
+        rtt_base=float(rng.uniform(20, 150)),
+        rtt_degraded=float(rng.uniform(200, 1000)),
+        edge_stress_prob=float(rng.uniform(0.05, 0.4)),
+        edge_degrade_prob=float(rng.uniform(0.01, 0.15)),
+        edge_unreachable_prob=float(rng.uniform(0.0, 0.03)),
+        cloud_service_time_ms=float(rng.uniform(5, 60)),
+    )
+
+
+def train_agent(
+    scenario: ScenarioConfig,
+    total_steps: int = 50_000,
+    domain_randomization: bool = True,
+    seed: int | None = None,
+) -> tuple[PPONetwork, np.ndarray]:
     env = InferenceGatewayEnv(scenario)
     trainer = PPOTrainer(env)
+    rng = np.random.default_rng(seed)
     step = 0
     seen_states: list[np.ndarray] = []
     pbar = tqdm(total=total_steps, desc="Training PPO")
     while step < total_steps:
+        if domain_randomization:
+            env.scenario = randomize_scenario(scenario, rng)
         trainer.collect_rollout(2048)
         seen_states.extend(trainer.buffer.states)
         metrics = trainer.train()
@@ -171,12 +198,28 @@ def save_state_stats(states: np.ndarray, path: str) -> None:
 
 
 def main() -> None:
-    print("Training PPO agent on steady scenario...")
-    policy, states = train_agent(ScenarioConfig.steady())
+    print("Training PPO agent with domain randomization (steady base scenario)...")
+    policy, states = train_agent(ScenarioConfig.steady(), domain_randomization=True)
     torch.save(policy.state_dict(), "ppo_policy.pt")
     save_state_stats(states, "state_stats.json")
     print("Saved ppo_policy.pt and state_stats.json")
 
 
+def demo() -> None:
+    rng = np.random.default_rng(0)
+    base = ScenarioConfig.steady()
+    samples = [randomize_scenario(base, rng) for _ in range(20)]
+    assert len({s.rtt_base for s in samples}) > 1, "randomize_scenario should vary rtt_base across calls"
+    assert all(20 <= s.rtt_base <= 150 for s in samples)
+    assert all(200 <= s.rtt_degraded <= 1000 for s in samples)
+    assert all(s.name == base.name and s.task == base.task for s in samples)
+    print("trainer self-check passed")
+
+
 if __name__ == "__main__":
-    main()
+    import sys
+
+    if len(sys.argv) > 1 and sys.argv[1] == "--selfcheck":
+        demo()
+    else:
+        main()

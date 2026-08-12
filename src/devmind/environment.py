@@ -38,6 +38,7 @@ class ScenarioConfig:
     edge_unreachable_prob: float = 0.01
     cloud_service_time_ms: float = 8.0
     sla_budget_ms: float = 300.0
+    reward_weights: tuple[float, float, float, float] = (0.4, 0.3, 0.2, 0.1)
 
     @classmethod
     def steady(cls, task: str = "toxicity") -> ScenarioConfig:
@@ -299,11 +300,12 @@ class InferenceGatewayEnv(gym.Env):
     def _compute_reward(
         self, accuracy: float, latency: float, sla_budget: float, sla_met: bool, energy: float
     ) -> float:
+        w_accuracy, w_sla, w_energy, w_latency = self.scenario.reward_weights
         return (
-            0.4 * accuracy
-            + 0.3 * (1.0 if sla_met else -0.5)
-            + 0.2 * (1.0 - energy / 5.0)
-            + 0.1 * max(0.0, 1.0 - latency / sla_budget)
+            w_accuracy * accuracy
+            + w_sla * (1.0 if sla_met else -0.5)
+            + w_energy * (1.0 - energy / 5.0)
+            + w_latency * max(0.0, 1.0 - latency / sla_budget)
         )
 
     def _advance_clock(self, dt: float) -> None:
@@ -320,3 +322,21 @@ class InferenceGatewayEnv(gym.Env):
             f"req={self._state.total_requests} t={self._state.t:.1f}s "
             f"queue={self._state.cloud_queue} violations={self._state.sla_violations}"
         )
+
+
+def demo() -> None:
+    from types import SimpleNamespace
+
+    default_weights = SimpleNamespace(scenario=SimpleNamespace(reward_weights=(0.4, 0.3, 0.2, 0.1)))
+    accuracy_only = SimpleNamespace(scenario=SimpleNamespace(reward_weights=(1.0, 0.0, 0.0, 0.0)))
+
+    r_default = InferenceGatewayEnv._compute_reward(default_weights, accuracy=1.0, latency=100.0, sla_budget=300.0, sla_met=True, energy=1.0)
+    r_accuracy_only = InferenceGatewayEnv._compute_reward(accuracy_only, accuracy=1.0, latency=100.0, sla_budget=300.0, sla_met=True, energy=1.0)
+
+    assert abs(r_accuracy_only - 1.0) < 1e-9, "accuracy-only weights should return raw accuracy"
+    assert r_default != r_accuracy_only, "reward_weights must actually change the computed reward"
+    print("environment self-check passed")
+
+
+if __name__ == "__main__":
+    demo()

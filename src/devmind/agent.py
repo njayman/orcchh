@@ -153,13 +153,35 @@ class AgenticOrchestrator:
             action = Action.ESCALATE_TO_CLOUD if confidence < self.FALLBACK_THRESHOLD else Action.ROUTE_TO_EDGE
             return action, fallback
         if action == Action.QUERY_EXTENDED_CONTEXT:
-            return Action.ROUTE_TO_EDGE, False
+            mcp = MCPSkillInterface(gold)
+            self.act(action, mcp)
+            action, _ = self.reason(gold)
+            if action == Action.QUERY_EXTENDED_CONTEXT:
+                action = Action.ROUTE_TO_EDGE
+            return Action(action), False
         return Action(action), False
 
     def reflect(self, latency_ms: float, sla_met: bool, accuracy: float, tier: str) -> None:
         self.log_buffer.append(
             {"latency_ms": latency_ms, "sla_met": sla_met, "accuracy": accuracy, "tier": tier}
         )
+
+
+class _ScriptedPolicy:
+    def __init__(self, actions: list[tuple[int, float]]):
+        self._actions = list(actions)
+        self._calls = 0
+
+    def to(self, device: Any) -> _ScriptedPolicy:
+        return self
+
+    def eval(self) -> None:
+        pass
+
+    def get_action_and_entropy(self, state: torch.Tensor) -> tuple[int, float]:
+        result = self._actions[min(self._calls, len(self._actions) - 1)]
+        self._calls += 1
+        return result
 
 
 def demo() -> None:
@@ -179,6 +201,17 @@ def demo() -> None:
 
         no_stats_orch = AgenticOrchestrator()
         assert not no_stats_orch.is_ood(far_out)
+
+    gold = GoldStateVector(slots=np.full(13, 0.5, dtype=np.float32))
+
+    re_decides = AgenticOrchestrator(policy=_ScriptedPolicy([(Action.QUERY_EXTENDED_CONTEXT, 0.1), (Action.ESCALATE_TO_CLOUD, 0.1)]))
+    action, fallback = re_decides.decide(gold)
+    assert action == Action.ESCALATE_TO_CLOUD and not fallback, "QUERY should trigger a second reason() call"
+    assert re_decides.policy._calls == 2, "decide() must call reason() twice on a QUERY action"
+
+    avoids_loop = AgenticOrchestrator(policy=_ScriptedPolicy([(Action.QUERY_EXTENDED_CONTEXT, 0.1), (Action.QUERY_EXTENDED_CONTEXT, 0.1)]))
+    action, fallback = avoids_loop.decide(gold)
+    assert action == Action.ROUTE_TO_EDGE, "a second QUERY must not loop, falls back to ROUTE_TO_EDGE"
 
     print("agent self-check passed")
 
