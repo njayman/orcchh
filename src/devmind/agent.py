@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import torch
@@ -108,8 +108,11 @@ class AgenticOrchestrator:
     ENTROPY_FALLBACK_THRESHOLD = 0.9
     FALLBACK_THRESHOLD = 0.9
     OOD_ZSCORE_THRESHOLD = 4.0
+    OOD_STD_FLOOR = 0.02
+    OOD_MIN_ANOMALOUS_SLOTS = 2
     QUERY_CALIBRATION_RISK_THRESHOLD = 0.2
     QUERY_ERROR_RATE_RISK_THRESHOLD = 0.15
+    FALLBACK_QUEUE_WAIT_CEILING = 0.4
 
     def __init__(self, policy: PPONetwork | None = None, device: str = "cpu", state_stats_path: str | None = None):
         self.policy = policy or PPONetwork()
@@ -125,6 +128,12 @@ class AgenticOrchestrator:
             self.state_mean = np.array(stats["mean"])
             self.state_std = np.array(stats["std"])
 
+        self.fallback_queue_wait_ceiling = self.FALLBACK_QUEUE_WAIT_CEILING
+        self.fallback_guards: list[tuple[str, Callable[[GoldStateVector], bool], Action]] = [
+            ("queue_backed_up", lambda gold: gold[1] > self.fallback_queue_wait_ceiling, Action.ROUTE_TO_EDGE),
+            ("low_confidence", lambda gold: gold[0] < self.FALLBACK_THRESHOLD, Action.ESCALATE_TO_CLOUD),
+        ]
+
     def perceive(self, gold: GoldStateVector) -> PerceptionCache:
         mcp = MCPSkillInterface(gold)
         return mcp.perceive()
@@ -136,8 +145,9 @@ class AgenticOrchestrator:
     def is_ood(self, gold: GoldStateVector) -> bool:
         if self.state_mean is None:
             return False
-        z = np.abs((gold.slots - self.state_mean) / self.state_std)
-        return bool(z.max() > self.OOD_ZSCORE_THRESHOLD)
+        std = np.maximum(self.state_std, self.OOD_STD_FLOOR)
+        z = np.abs((gold.slots - self.state_mean) / std)
+        return bool((z > self.OOD_ZSCORE_THRESHOLD).sum() >= self.OOD_MIN_ANOMALOUS_SLOTS)
 
     def act(self, action: int, mcp: MCPSkillInterface) -> Action:
         if action == Action.QUERY_EXTENDED_CONTEXT:
@@ -147,19 +157,18 @@ class AgenticOrchestrator:
             return Action.QUERY_EXTENDED_CONTEXT
         return Action(action)
 
+    def _resolve_fallback(self, gold: GoldStateVector) -> Action:
+        for _name, guard, guard_action in self.fallback_guards:
+            if guard(gold):
+                return guard_action
+        return Action.ROUTE_TO_EDGE
+
     def decide(self, gold: GoldStateVector) -> tuple[Action, bool]:
         action, entropy = self.reason(gold)
         fallback = entropy > self.ENTROPY_FALLBACK_THRESHOLD or self.is_ood(gold)
         if fallback:
-            confidence = gold[0]
-            action = Action.ESCALATE_TO_CLOUD if confidence < self.FALLBACK_THRESHOLD else Action.ROUTE_TO_EDGE
-            return action, fallback
+            return self._resolve_fallback(gold), fallback
         if action == Action.QUERY_EXTENDED_CONTEXT:
-            # The Gold vector is already fully computed before decide() runs (SilverEnricher
-            # masks calibration_delta/error_rate on the edge's real operational_state, not on
-            # agent action), so re-sampling reason() on the identical state would just be noise,
-            # not a genuinely informed second decision. Instead, spend the perception cost on
-            # actually consulting the extended MCP skills and route on their real content.
             mcp = MCPSkillInterface(gold)
             self.act(action, mcp)
             calibration_delta = mcp.call("get_edge_calibration_delta")
@@ -170,9 +179,9 @@ class AgenticOrchestrator:
             return (Action.ESCALATE_TO_CLOUD if high_risk else Action.ROUTE_TO_EDGE), False
         return Action(action), False
 
-    def reflect(self, latency_ms: float, sla_met: bool, accuracy: float, tier: str) -> None:
+    def reflect(self, latency_ms: float, sla_met: bool, accuracy: float, tier: str, fallback: bool = False) -> None:
         self.log_buffer.append(
-            {"latency_ms": latency_ms, "sla_met": sla_met, "accuracy": accuracy, "tier": tier}
+            {"latency_ms": latency_ms, "sla_met": sla_met, "accuracy": accuracy, "tier": tier, "fallback": fallback}
         )
 
 
@@ -211,24 +220,74 @@ def demo() -> None:
         no_stats_orch = AgenticOrchestrator()
         assert not no_stats_orch.is_ood(far_out)
 
+        one_slot_spike = np.full(13, 0.5, dtype=np.float32)
+        one_slot_spike[0] = 5.0
+        assert not orch.is_ood(GoldStateVector(slots=one_slot_spike)), (
+            "a single anomalous slot (e.g. low confidence under sustained degradation) "
+            "must not alone distrust the whole state"
+        )
+
+        two_slot_spike = np.full(13, 0.5, dtype=np.float32)
+        two_slot_spike[0] = 5.0
+        two_slot_spike[1] = 5.0
+        assert orch.is_ood(GoldStateVector(slots=two_slot_spike)), (
+            "correlated anomalies across multiple slots should still trigger OOD"
+        )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        stats_path = f"{tmp}/near_constant_stats.json"
+        near_constant_std = [0.1] * 13
+        near_constant_std[3] = 1e-6
+        with open(stats_path, "w") as f:
+            json.dump({"mean": [0.5] * 13, "std": near_constant_std}, f)
+        orch2 = AgenticOrchestrator(state_stats_path=stats_path)
+        tiny_real_deviation = np.full(13, 0.5, dtype=np.float32)
+        tiny_real_deviation[3] = 0.5013
+        assert not orch2.is_ood(GoldStateVector(slots=tiny_real_deviation)), (
+            "a near-zero-std slot must not dominate the OOD check on a tiny real deviation"
+        )
+
     querying = AgenticOrchestrator(policy=_ScriptedPolicy([(Action.QUERY_EXTENDED_CONTEXT, 0.1)]))
     revealed_mask = np.ones(13, dtype=np.float32)
 
     low_risk_slots = np.full(13, 0.5, dtype=np.float32)
-    low_risk_slots[10] = 0.05  # calibration_delta, below risk threshold
-    low_risk_slots[11] = 0.05  # error_rate_1m, below risk threshold
+    low_risk_slots[10] = 0.05
+    low_risk_slots[11] = 0.05
     action, fallback = querying.decide(GoldStateVector(slots=low_risk_slots, mask=revealed_mask))
     assert action == Action.ROUTE_TO_EDGE and not fallback, "QUERY with low calibration/error risk should route to edge"
 
     high_risk_slots = np.full(13, 0.5, dtype=np.float32)
-    high_risk_slots[10] = 0.9  # calibration_delta, above risk threshold
+    high_risk_slots[10] = 0.9
     action, fallback = querying.decide(GoldStateVector(slots=high_risk_slots, mask=revealed_mask))
     assert action == Action.ESCALATE_TO_CLOUD and not fallback, "QUERY revealing high calibration_delta must escalate"
 
     masked_slots = np.full(13, 0.5, dtype=np.float32)
-    masked_slots[10] = 0.9  # would be high risk, but not actually available (mask=0, GoldStateVector default)
+    masked_slots[10] = 0.9
     action, fallback = querying.decide(GoldStateVector(slots=masked_slots))
     assert action == Action.ROUTE_TO_EDGE, "QUERY with masked-out extended slots has no signal to escalate on"
+
+    uncertain = AgenticOrchestrator(policy=_ScriptedPolicy([(Action.ROUTE_TO_EDGE, 0.99)]))
+    queue_backed_up_slots = np.full(13, 0.5, dtype=np.float32)
+    queue_backed_up_slots[0] = 0.5
+    queue_backed_up_slots[1] = 0.9
+    action, fallback = uncertain.decide(GoldStateVector(slots=queue_backed_up_slots))
+    assert fallback and action == Action.ROUTE_TO_EDGE, (
+        "a backed-up queue must not be escalated into further, even under low confidence"
+    )
+
+    normal_queue_slots = np.full(13, 0.5, dtype=np.float32)
+    normal_queue_slots[0] = 0.2
+    normal_queue_slots[1] = 0.05
+    action, fallback = uncertain.decide(GoldStateVector(slots=normal_queue_slots))
+    assert fallback and action == Action.ESCALATE_TO_CLOUD, (
+        "with a healthy queue, low confidence should still fall through to the confidence guard"
+    )
+
+    uncertain.fallback_queue_wait_ceiling = 0.95
+    action, fallback = uncertain.decide(GoldStateVector(slots=queue_backed_up_slots))
+    assert fallback and action == Action.ESCALATE_TO_CLOUD, (
+        "raising the calibrated ceiling must change behavior without editing fallback_guards"
+    )
 
     print("agent self-check passed")
 

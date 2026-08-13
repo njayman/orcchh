@@ -9,9 +9,6 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 from devmind.medallion import EWMA
 
-# Each task = one edge (small/fast) + cloud (larger/accurate) checkpoint pair,
-# independently fine-tuned on the same dataset -- mirrors the original
-# DistilBERT/BERT-large toxicity split. Verified loadable at time of writing.
 TASK_MODELS: dict[str, tuple[str, str]] = {
     "toxicity": ("newsmediabias/DistilBert_Toxicity_Classification", "AnonymousCS/bert-large-uncased-Twitter-toxicity"),
     "sentiment": ("distilbert-base-uncased-finetuned-sst-2-english", "yoshitomo-matsubara/bert-large-uncased-sst2"),

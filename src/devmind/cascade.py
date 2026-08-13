@@ -104,7 +104,7 @@ class CascadeController:
 
         tier, latency, accuracy = await self._dispatch(action, text, true_label, edge_result, bronze)
         sla_met = latency <= bronze.sla_budget_ms
-        self.agent.reflect(latency, sla_met, accuracy, tier)
+        self.agent.reflect(latency, sla_met, accuracy, tier, fallback)
         self.edge.update_from_outcome(latency, sla_met, accuracy)
         if self.action_log_path:
             loop.run_in_executor(None, self._log_action, request_id, action, tier, latency, sla_met, accuracy, fallback)
@@ -149,7 +149,7 @@ class CascadeController:
             0.5 + 0.5 * cloud_result.confidence
         )
         sla_met = cloud_result.latency_ms <= sla_budget_ms
-        self.agent.reflect(cloud_result.latency_ms, sla_met, accuracy, "cloud")
+        self.agent.reflect(cloud_result.latency_ms, sla_met, accuracy, "cloud", fallback=True)
         return RequestOutcome(
             request_id=request_id,
             tier="cloud",

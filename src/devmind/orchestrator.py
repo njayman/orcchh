@@ -108,6 +108,7 @@ class PolicyOrchestrator:
         os.makedirs(self.library_dir, exist_ok=True)
         self._onboard_count = 0
         self.recalibrate_every = 5
+        self.fallback_ceilings: dict[str, float] = {}
 
     def _models_for(self, task: str) -> tuple[Any, Any]:
         if self._edge_model_override is not None and self._cloud_model_override is not None:
@@ -130,6 +131,7 @@ class PolicyOrchestrator:
             for pid, rec in self.library.items()
         }
         decision, chosen = select_decision(candidates, self.thresholds)
+        decision_metrics = candidates.get(chosen)
 
         if decision == PolicyDecision.FINE_TUNE:
             chosen = self._fine_tune(chosen, scenario)
@@ -141,6 +143,9 @@ class PolicyOrchestrator:
             rec.validated_scenarios.append(scenario.name)
         if client not in rec.clients_assigned:
             rec.clients_assigned.append(client)
+
+        if decision_metrics is not None:
+            self.calibrate_fallback_ceiling(client, decision_metrics)
 
         self._log_decision(client, scenario, candidates, decision, chosen, trigger)
         self._onboard_count += 1
@@ -218,6 +223,7 @@ class PolicyOrchestrator:
             "policy_assigned": chosen,
             "dominant_signal": signal,
             "trigger": trigger,
+            "fallback_queue_wait_ceiling": self.fallback_ceilings.get(client),
         }
         os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
         with open(self.log_path, "a") as f:
@@ -279,6 +285,26 @@ class PolicyOrchestrator:
             f.write(json.dumps(entry) + "\n")
         return entry
 
+    def calibrate_fallback_ceiling(self, client: str, metrics: EvalMetrics, step: float = 0.05) -> float:
+        """Governance-time: tune this client's AgenticOrchestrator.fallback_queue_wait_ceiling
+        from its own evaluation history, the same evidence-driven pattern as
+        recalibrate_thresholds(). A client that hits the entropy/OOD fallback often
+        should have that fallback err toward not escalating into an already-backed-up
+        queue (tighter ceiling); a client that rarely hits it can afford a looser one.
+        Never called from the per-request fast loop — the live CascadeController reads
+        fallback_ceilings[client] when constructing that client's AgenticOrchestrator."""
+        baseline = AgenticOrchestrator.FALLBACK_QUEUE_WAIT_CEILING
+        current = self.fallback_ceilings.get(client, baseline)
+        if metrics.fallback_rate > 0.3:
+            new_val = current - step
+        elif metrics.fallback_rate < 0.05:
+            new_val = current + step
+        else:
+            new_val = current
+        new_val = max(0.1, min(1.0, new_val))
+        self.fallback_ceilings[client] = new_val
+        return new_val
+
 
 class DriftEventListener:
     def __init__(
@@ -313,9 +339,6 @@ class DriftEventListener:
             return False
         last = self._last_escalated.get(client_id)
         cooled_down = last is None or now - last >= self.recovery_window_s
-        # multi-signal correlation: state distress alone must sustain trust_floor breach
-        # over recovery_window_s, but a simultaneous error-rate spike escalates as soon as
-        # cooled down, without waiting out a fresh sustained-distress window
         if high_error and cooled_down:
             self._distress_since.pop(client_id, None)
             self._last_escalated[client_id] = now
@@ -444,6 +467,19 @@ def demo() -> None:
 
     good = EvalMetrics(accuracy=0.9, sla_violation_rate=0.05, escalation_rate=0.3)
     close_miss = EvalMetrics(accuracy=0.7, sla_violation_rate=0.2, escalation_rate=0.5)
+
+    calib_orch = PolicyOrchestrator(library_dir="/tmp/devmind_calib_demo")
+    baseline = AgenticOrchestrator.FALLBACK_QUEUE_WAIT_CEILING
+    high_fallback = EvalMetrics(fallback_rate=0.5)
+    tightened = calib_orch.calibrate_fallback_ceiling("c_noisy", high_fallback)
+    assert tightened < baseline, "a client that hits the safety net often should get a tighter queue-wait ceiling"
+
+    low_fallback = EvalMetrics(fallback_rate=0.0)
+    loosened = calib_orch.calibrate_fallback_ceiling("c_quiet", low_fallback)
+    assert loosened > baseline, "a client that rarely hits the safety net should get a looser ceiling"
+    assert calib_orch.fallback_ceilings["c_noisy"] != calib_orch.fallback_ceilings["c_quiet"], (
+        "calibration must be per-client, not global"
+    )
 
     decision, chosen = select_decision({"p1": good}, t)
     assert decision == PolicyDecision.REUSE and chosen == "p1"
