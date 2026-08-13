@@ -131,16 +131,21 @@ class EdgeDevice:
         sla_margin_ms = sla_budget_ms - predicted_local_latency_ms
 
         self._last_report = EdgeContextReport(
-            resource_stress=ResourceStress(**{
-                k: getattr(self._resource_stress, k) for k in ["cpu", "gpu", "memory", "disk_io", "thermal"]
-            }),
+            resource_stress=ResourceStress(
+                **{
+                    k: getattr(self._resource_stress, k)
+                    for k in ["cpu", "gpu", "memory", "disk_io", "thermal"]
+                }
+            ),
             operational_state=state,
             confidence_raw=confidence_raw,
             confidence_calibrated=calibrated,
             calibration_delta=delta,
-            error_rate_1m=error_rate,
+            error_rate=error_rate,
             sla_margin_ms=sla_margin_ms,
-            trust_score=self._trust_ewma.value if self._trust_ewma._value is not None else 1.0,
+            trust_score=(
+                self._trust_ewma.value if self._trust_ewma._value is not None else 1.0
+            ),
         )
         self._last_seen = time.monotonic()
         return self._last_report

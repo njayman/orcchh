@@ -39,7 +39,7 @@ class EdgeContextReport:
     confidence_raw: float = 0.0
     confidence_calibrated: float = 0.0
     calibration_delta: float = 0.0
-    error_rate_1m: float = 0.0
+    error_rate: float = 0.0
     sla_margin_ms: float = 0.0
     trust_score: float = 1.0
 
@@ -72,7 +72,7 @@ class SilverFeatureVector:
     resource_stress_thermal: float = 0.0
 
     calibration_delta: Optional[float] = None
-    error_rate_1m: Optional[float] = None
+    error_rate: Optional[float] = None
     sla_violation_predicted: bool = False
     operational_state: OperationalState = OperationalState.NOMINAL
     stale: bool = False
@@ -93,7 +93,7 @@ class GoldStateVector:
         "resource_disk_io",
         "resource_thermal",
         "calibration_delta",
-        "error_rate_1m",
+        "error_rate",
         "operational_state",
     ]
 
@@ -122,12 +122,12 @@ class GoldStateVector:
         slots[8] = silver.resource_stress_disk_io
         slots[9] = silver.resource_stress_thermal
         slots[10] = silver.calibration_delta if silver.calibration_delta is not None else 0.0
-        slots[11] = silver.error_rate_1m if silver.error_rate_1m is not None else 0.0
+        slots[11] = silver.error_rate if silver.error_rate is not None else 0.0
         slots[12] = op_map[silver.operational_state]
 
         if silver.calibration_delta is None:
             mask[10] = 0.0
-        if silver.error_rate_1m is None:
+        if silver.error_rate is None:
             mask[11] = 0.0
         if silver.stale:
             slots[4:10] = 0.0

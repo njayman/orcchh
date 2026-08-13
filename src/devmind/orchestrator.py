@@ -333,7 +333,7 @@ class DriftEventListener:
         self._prune_stale(now)
         state_distressed = report.operational_state in (OperationalState.DEGRADING, OperationalState.UNREACHABLE)
         low_trust = report.trust_score < self.trust_floor
-        high_error = report.error_rate_1m > self.error_rate_ceiling
+        high_error = report.error_rate > self.error_rate_ceiling
         if not state_distressed or not low_trust:
             self._distress_since.pop(client_id, None)
             return False
@@ -506,7 +506,7 @@ def demo() -> None:
     assert not listener.should_escalate("c2", degrading_recovered, now=200.0)
 
     degrading_high_error = EdgeContextReport(
-        operational_state=OperationalState.DEGRADING, trust_score=0.2, error_rate_1m=0.3
+        operational_state=OperationalState.DEGRADING, trust_score=0.2, error_rate=0.3
     )
     assert listener.should_escalate("c3", degrading_high_error, now=300.0)
     assert not listener.should_escalate("c3", degrading_high_error, now=301.0)

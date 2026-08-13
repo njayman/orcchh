@@ -104,7 +104,7 @@ class SilverEnricher:
         if is_stressed or is_degrading:
             features.calibration_delta = ctx.calibration_delta
         if is_degrading:
-            features.error_rate_1m = ctx.error_rate_1m
+            features.error_rate = ctx.error_rate
 
         return features
 

@@ -91,7 +91,7 @@ sequenceDiagram
         Cloud-->>Req: response (fallback_triggered=True)
     else edge inference succeeds
         Edge->>ED: emit_report(confidence, is_correct)
-        ED->>ED: compute calibration_delta,\nerror_rate_1m, classifier.predict()
+        ED->>ED: compute calibration_delta,\error_rate, classifier.predict()
         ED->>Med: EdgeContextReport
         Med->>Med: Silver: conditional enrichment\n(gated on operational_state)
         Med->>Med: Gold: normalize + zero-mask
