@@ -133,6 +133,7 @@ class AgenticOrchestrator:
             ("queue_backed_up", lambda gold: gold[1] > self.fallback_queue_wait_ceiling, Action.ROUTE_TO_EDGE),
             ("low_confidence", lambda gold: gold[0] < self.FALLBACK_THRESHOLD, Action.ESCALATE_TO_CLOUD),
         ]
+        self.last_fallback_reason: str | None = None
 
     def perceive(self, gold: GoldStateVector) -> PerceptionCache:
         mcp = MCPSkillInterface(gold)
@@ -158,9 +159,11 @@ class AgenticOrchestrator:
         return Action(action)
 
     def _resolve_fallback(self, gold: GoldStateVector) -> Action:
-        for _name, guard, guard_action in self.fallback_guards:
+        for name, guard, guard_action in self.fallback_guards:
             if guard(gold):
+                self.last_fallback_reason = name
                 return guard_action
+        self.last_fallback_reason = "no_guard_matched"
         return Action.ROUTE_TO_EDGE
 
     def decide(self, gold: GoldStateVector) -> tuple[Action, bool]:
@@ -168,6 +171,7 @@ class AgenticOrchestrator:
         fallback = entropy > self.ENTROPY_FALLBACK_THRESHOLD or self.is_ood(gold)
         if fallback:
             return self._resolve_fallback(gold), fallback
+        self.last_fallback_reason = None
         if action == Action.QUERY_EXTENDED_CONTEXT:
             mcp = MCPSkillInterface(gold)
             self.act(action, mcp)
@@ -274,6 +278,9 @@ def demo() -> None:
     assert fallback and action == Action.ROUTE_TO_EDGE, (
         "a backed-up queue must not be escalated into further, even under low confidence"
     )
+    assert uncertain.last_fallback_reason == "queue_backed_up", (
+        "the guard name that actually fired must be surfaced, not discarded"
+    )
 
     normal_queue_slots = np.full(13, 0.5, dtype=np.float32)
     normal_queue_slots[0] = 0.2
@@ -281,6 +288,13 @@ def demo() -> None:
     action, fallback = uncertain.decide(GoldStateVector(slots=normal_queue_slots))
     assert fallback and action == Action.ESCALATE_TO_CLOUD, (
         "with a healthy queue, low confidence should still fall through to the confidence guard"
+    )
+    assert uncertain.last_fallback_reason == "low_confidence"
+
+    querying.last_fallback_reason = "stale_value_from_prior_request"
+    action, fallback = querying.decide(GoldStateVector(slots=low_risk_slots, mask=revealed_mask))
+    assert not fallback and querying.last_fallback_reason is None, (
+        "a non-fallback decision must clear the last reason, not leak a stale one from a prior request"
     )
 
     uncertain.fallback_queue_wait_ceiling = 0.95

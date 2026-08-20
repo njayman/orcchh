@@ -5,15 +5,17 @@ import asyncio
 import json
 import os
 import time
+from collections import Counter, deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import torch
 
 from devmind.agent import AgenticOrchestrator, PPONetwork
+from devmind.diagnosis import Diagnosis, DiagnosisContext, DiagnosisProvider
 from devmind.environment import InferenceGatewayEnv, ScenarioConfig
 from devmind.evaluation import EvalMetrics, average_metrics, make_env, ppo_policy, run_episode
 from devmind.models import EdgeContextReport, OperationalState
@@ -46,6 +48,11 @@ THRESHOLD_BOUNDS = {
     "max_sla_violation_rate": (0.05, 0.30),
     "min_accuracy": (0.65, 0.90),
     "max_escalation_rate": (0.40, 0.80),
+}
+
+TRAINING_STEP_BOUNDS = {
+    "train_new_steps": (10_000, 100_000),
+    "fine_tune_steps": (1_000, 20_000),
 }
 
 
@@ -135,8 +142,12 @@ class PolicyOrchestrator:
 
         if decision == PolicyDecision.FINE_TUNE:
             chosen = self._fine_tune(chosen, scenario)
+            post_metrics = self._evaluate(self.library[chosen].checkpoint_path, scenario, max_samples)
+            self.calibrate_training_steps(decision, post_metrics)
         elif decision == PolicyDecision.TRAIN_NEW:
             chosen = self._train_new(client, scenario)
+            post_metrics = self._evaluate(self.library[chosen].checkpoint_path, scenario, max_samples)
+            self.calibrate_training_steps(decision, post_metrics)
 
         rec = self.library[chosen]
         if scenario.name not in rec.validated_scenarios:
@@ -305,6 +316,39 @@ class PolicyOrchestrator:
         self.fallback_ceilings[client] = new_val
         return new_val
 
+    def calibrate_training_steps(
+        self, decision: PolicyDecision, metrics: EvalMetrics, step_increment: int = 5_000
+    ) -> int | None:
+        """Governance-time: nudge train_new_steps/fine_tune_steps toward whatever the
+        policy just trained actually needed, the same evidence-driven pattern as
+        calibrate_fallback_ceiling()/recalibrate_thresholds(). If it meets tolerance,
+        next TRAIN_NEW/FINE_TUNE needs less compute; if it doesn't, it needs more.
+        Never called from the per-request fast loop."""
+        if decision == PolicyDecision.TRAIN_NEW:
+            attr = "train_new_steps"
+        elif decision == PolicyDecision.FINE_TUNE:
+            attr = "fine_tune_steps"
+        else:
+            return None
+        lo, hi = TRAINING_STEP_BOUNDS[attr]
+        old = getattr(self, attr)
+        met = _meets_tolerance(metrics, self.thresholds)
+        new_val = max(lo, min(hi, old + (-step_increment if met else step_increment)))
+        setattr(self, attr, new_val)
+        entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "event": "training_steps_calibrated",
+            "decision": decision.value,
+            "attr": attr,
+            "old_value": old,
+            "new_value": new_val,
+            "met_tolerance": met,
+        }
+        os.makedirs(os.path.dirname(self.log_path), exist_ok=True)
+        with open(self.log_path, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+        return new_val
+
 
 class DriftEventListener:
     def __init__(
@@ -362,6 +406,110 @@ class DriftEventListener:
                 await loop.run_in_executor(
                     None, self.orchestrator.onboard, client_id, scenario, max_samples, "drift_detected"
                 )
+
+
+class EscalationDiagnosisMonitor:
+    """Governance-time: watches per-client action-log rows for sustained near-100%
+    escalation and calls a DiagnosisProvider (e.g. local Ollama) to explain why, off
+    the request path entirely. Mirrors DriftEventListener's queue + sustained-window +
+    cooldown shape. Never called from the per-request fast loop."""
+
+    WINDOW = 50
+    ESCALATION_THRESHOLD = 0.95
+    COOLDOWN_S = 300.0
+
+    def __init__(
+        self,
+        diagnosis_provider: DiagnosisProvider,
+        on_diagnosis: Callable[[str, Diagnosis], None] | None = None,
+        window: int = WINDOW,
+        escalation_threshold: float = ESCALATION_THRESHOLD,
+        cooldown_s: float = COOLDOWN_S,
+    ):
+        self.diagnosis_provider = diagnosis_provider
+        self.on_diagnosis = on_diagnosis
+        self.window = window
+        self.escalation_threshold = escalation_threshold
+        self.cooldown_s = cooldown_s
+        self._rows: dict[str, deque[dict]] = {}
+        self._last_diagnosed: dict[str, float] = {}
+        self._last_seen: dict[str, float] = {}
+        self._queue: asyncio.Queue[tuple[str, dict, float]] = asyncio.Queue()
+
+    def _prune_stale(self, now: float) -> None:
+        stale_before = now - 10 * self.cooldown_s
+        stale = [cid for cid, t in self._last_seen.items() if t < stale_before]
+        for cid in stale:
+            self._rows.pop(cid, None)
+            self._last_diagnosed.pop(cid, None)
+            self._last_seen.pop(cid, None)
+
+    def _should_diagnose(self, client_id: str, now: float) -> bool:
+        rows = self._rows.get(client_id)
+        if rows is None or len(rows) < self.window:
+            return False
+        escalated = sum(1 for r in rows if r.get("action") == "ESCALATE_TO_CLOUD")
+        if escalated / len(rows) < self.escalation_threshold:
+            return False
+        last = self._last_diagnosed.get(client_id)
+        return last is None or now - last >= self.cooldown_s
+
+    def _build_context(self, client_id: str) -> DiagnosisContext:
+        rows = list(self._rows[client_id])
+        n = len(rows)
+        escalated = sum(1 for r in rows if r.get("action") == "ESCALATE_TO_CLOUD")
+        violated = sum(1 for r in rows if not r.get("sla_met", True))
+        states = [r["operational_state"] for r in rows if r.get("operational_state")]
+        dominant_state = Counter(states).most_common(1)[0][0] if states else "UNKNOWN"
+
+        stress_keys = ["cpu", "gpu", "memory", "disk_io", "thermal"]
+        stress_rows = [r["resource_stress"] for r in rows if r.get("resource_stress")]
+        avg_stress = {
+            k: (sum(s.get(k, 0.0) for s in stress_rows) / len(stress_rows)) if stress_rows else 0.0
+            for k in stress_keys
+        }
+
+        cal_vals = [r["calibration_delta"] for r in rows if r.get("calibration_delta") is not None]
+        err_vals = [r["error_rate"] for r in rows if r.get("error_rate") is not None]
+        trust_vals = [r["trust_score"] for r in rows if r.get("trust_score") is not None]
+        reasons = [r["fallback_reason"] for r in rows if r.get("fallback_reason")]
+        dominant_reason = Counter(reasons).most_common(1)[0][0] if reasons else None
+
+        return DiagnosisContext(
+            client_id=client_id,
+            window_requests=n,
+            escalation_rate=escalated / n,
+            sla_violation_rate=violated / n,
+            dominant_operational_state=dominant_state,
+            avg_resource_stress=avg_stress,
+            avg_calibration_delta=(sum(cal_vals) / len(cal_vals)) if cal_vals else None,
+            avg_error_rate=(sum(err_vals) / len(err_vals)) if err_vals else None,
+            dominant_fallback_reason=dominant_reason,
+            avg_trust_score=(sum(trust_vals) / len(trust_vals)) if trust_vals else None,
+        )
+
+    def notify(self, client_id: str, row: dict) -> None:
+        self._queue.put_nowait((client_id, row, time.monotonic()))
+
+    async def run_forever(self) -> None:
+        while True:
+            client_id, row, now = await self._queue.get()
+            self._prune_stale(now)
+            self._last_seen[client_id] = now
+            buf = self._rows.setdefault(client_id, deque(maxlen=self.window))
+            buf.append(row)
+            if self._should_diagnose(client_id, now):
+                self._last_diagnosed[client_id] = now
+                context = self._build_context(client_id)
+                # ponytail: awaited inline, so one client's diagnosis call serializes
+                # behind another's on this single queue consumer. Ollama can serve
+                # concurrent requests fine; upgrade path if this matters is
+                # asyncio.create_task(self.diagnosis_provider.diagnose(context)) per
+                # client with an in-flight guard (skip if that client already has one
+                # running) so distressed clients don't queue behind each other.
+                diagnosis = await self.diagnosis_provider.diagnose(context)
+                if self.on_diagnosis is not None:
+                    self.on_diagnosis(client_id, diagnosis)
 
 
 CLIENT_SCENARIOS: dict[str, ScenarioConfig] = {
@@ -462,6 +610,14 @@ def main_ablation_7() -> None:
     print(f"\nResults saved to {out_dir}/run7_{timestamp}.*")
 
 
+class _ScriptedDiagnosisProvider:
+    async def diagnose(self, context: DiagnosisContext) -> Diagnosis:
+        return Diagnosis(
+            summary="s", likely_cause="c", resource_recommendation="r",
+            model_used="test", latency_ms=1.0, raw_response="{}",
+        )
+
+
 def demo() -> None:
     t = ToleranceThresholds()
 
@@ -480,6 +636,20 @@ def demo() -> None:
     assert calib_orch.fallback_ceilings["c_noisy"] != calib_orch.fallback_ceilings["c_quiet"], (
         "calibration must be per-client, not global"
     )
+
+    step_orch = PolicyOrchestrator(library_dir="/tmp/devmind_step_demo")
+    base_train_new = step_orch.train_new_steps
+    step_orch.calibrate_training_steps(PolicyDecision.TRAIN_NEW, good)
+    assert step_orch.train_new_steps < base_train_new, "meeting tolerance should shrink train_new_steps"
+
+    base_fine_tune = step_orch.fine_tune_steps
+    step_orch.calibrate_training_steps(PolicyDecision.FINE_TUNE, close_miss)
+    assert step_orch.fine_tune_steps > base_fine_tune, "missing tolerance should grow fine_tune_steps"
+
+    for _ in range(50):
+        step_orch.calibrate_training_steps(PolicyDecision.TRAIN_NEW, good)
+    lo, _ = TRAINING_STEP_BOUNDS["train_new_steps"]
+    assert step_orch.train_new_steps == lo, "must clamp at the lower bound, never spiral to zero"
 
     decision, chosen = select_decision({"p1": good}, t)
     assert decision == PolicyDecision.REUSE and chosen == "p1"
@@ -515,6 +685,50 @@ def demo() -> None:
 
     listener.should_escalate("c4", nominal, now=310.0 + 10 * listener.recovery_window_s + 1)
     assert "c1" not in listener._last_escalated, "stale trackers must be pruned"
+
+    monitor = EscalationDiagnosisMonitor(
+        _ScriptedDiagnosisProvider(), window=5, escalation_threshold=0.8, cooldown_s=100.0
+    )
+    escalated_row = {
+        "action": "ESCALATE_TO_CLOUD", "sla_met": False, "operational_state": "DEGRADING",
+        "resource_stress": {"cpu": 0.9, "gpu": 0.0, "memory": 0.3, "disk_io": 0.2, "thermal": 0.7},
+        "calibration_delta": 0.4, "error_rate": 0.2, "trust_score": 0.1,
+        "fallback_reason": "low_confidence",
+    }
+    for _ in range(4):
+        monitor._rows.setdefault("c1", deque(maxlen=5)).append(escalated_row)
+    assert not monitor._should_diagnose("c1", now=0.0), "must not fire before the window is full"
+
+    monitor._rows["c1"].append(escalated_row)
+    assert monitor._should_diagnose("c1", now=0.0), "full window at 100% escalation must fire"
+
+    monitor._last_diagnosed["c1"] = 0.0
+    assert not monitor._should_diagnose("c1", now=50.0), "must respect cooldown"
+    assert monitor._should_diagnose("c1", now=150.0), "must fire again once cooldown elapses"
+
+    healthy_rows: deque = deque(maxlen=5)
+    for _ in range(5):
+        healthy_rows.append({"action": "ROUTE_TO_EDGE", "sla_met": True})
+    monitor._rows["c2"] = healthy_rows
+    assert not monitor._should_diagnose("c2", now=0.0), "low escalation rate must not fire"
+
+    context = monitor._build_context("c1")
+    assert context.client_id == "c1" and context.window_requests == 5
+    assert context.escalation_rate == 1.0 and context.sla_violation_rate == 1.0
+    assert context.dominant_operational_state == "DEGRADING"
+    assert context.avg_resource_stress["cpu"] == 0.9 and context.avg_resource_stress["thermal"] == 0.7
+    assert context.avg_trust_score == 0.1
+    assert context.dominant_fallback_reason == "low_confidence"
+
+    healthy_context = monitor._build_context("c2")
+    assert healthy_context.dominant_fallback_reason is None, (
+        "rows with no fallback_reason recorded must not fabricate one"
+    )
+
+    monitor._last_seen = {"c1": 0.0, "c2": 0.0}
+    monitor._prune_stale(now=20 * monitor.cooldown_s)
+    assert "c1" not in monitor._rows, "stale clients must be pruned"
+    assert "c1" not in monitor._last_diagnosed
 
     import tempfile
 

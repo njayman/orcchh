@@ -1,24 +1,30 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from devmind.dataset import TASK_DATASETS
+from devmind.diagnosis import Diagnosis, OllamaDiagnosisProvider
 from devmind.environment import ScenarioConfig
-from devmind.orchestrator import PolicyOrchestrator
+from devmind.orchestrator import EscalationDiagnosisMonitor, PolicyOrchestrator
 
 _PRESETS = {
     "steady": ScenarioConfig.steady,
     "bursty": ScenarioConfig.bursty,
     "degraded_network": ScenarioConfig.degraded_network,
 }
+
+_ACTION_LOG_PATH = os.environ.get("DEVMIND_ACTION_LOG_PATH", "docs/evaluation/request_log.jsonl")
+_TAIL_POLL_INTERVAL_S = 1.5
 
 
 class ClientRequest(BaseModel):
@@ -60,6 +66,92 @@ def _scenario_from_request(req: ClientRequest) -> ScenarioConfig:
     )
 
 
+async def _broadcast(app: FastAPI, message: dict) -> None:
+    dead = []
+    for ws in app.state.ws_clients:
+        try:
+            await ws.send_json(message)
+        except Exception:
+            dead.append(ws)
+    for ws in dead:
+        app.state.ws_clients.discard(ws)
+
+
+def _log_diagnosis(orch: PolicyOrchestrator, client_id: str, diagnosis: Diagnosis) -> None:
+    entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "event": "diagnosis_generated",
+        "client": client_id,
+        "summary": diagnosis.summary,
+        "likely_cause": diagnosis.likely_cause,
+        "resource_recommendation": diagnosis.resource_recommendation,
+        "model_used": diagnosis.model_used,
+        "latency_ms": diagnosis.latency_ms,
+        "parsed_ok": diagnosis.parsed_ok,
+    }
+    os.makedirs(os.path.dirname(orch.log_path), exist_ok=True)
+    with open(orch.log_path, "a") as f:
+        f.write(json.dumps(entry) + "\n")
+
+
+def _make_diagnosis_callback(app: FastAPI, orch: PolicyOrchestrator):
+    def _callback(client_id: str, diagnosis: Diagnosis) -> None:
+        _log_diagnosis(orch, client_id, diagnosis)
+        asyncio.create_task(
+            _broadcast(
+                app,
+                {
+                    "type": "notification",
+                    "severity": "urgent",
+                    "client": client_id,
+                    "summary": diagnosis.summary,
+                    "likely_cause": diagnosis.likely_cause,
+                    "resource_recommendation": diagnosis.resource_recommendation,
+                    "parsed_ok": diagnosis.parsed_ok,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+        )
+
+    return _callback
+
+
+async def _tail_action_log_loop(app: FastAPI, monitor: EscalationDiagnosisMonitor, path: str) -> None:
+    offset = 0
+    while True:
+        if os.path.exists(path):
+            size = os.path.getsize(path)
+            if size < offset:
+                offset = 0  # file was truncated/rotated
+            if size > offset:
+                with open(path) as f:
+                    f.seek(offset)
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            row = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        client_id = row.get("client", "default")
+                        monitor.notify(client_id, row)
+                        await _broadcast(
+                            app,
+                            {
+                                "type": "escalation_point",
+                                "client": client_id,
+                                "timestamp": row.get("timestamp"),
+                                "tier": row.get("tier"),
+                                "action": row.get("action"),
+                                "sla_met": row.get("sla_met"),
+                                "latency_ms": row.get("latency_ms"),
+                            },
+                        )
+                    offset = f.tell()
+        await asyncio.sleep(_TAIL_POLL_INTERVAL_S)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     orch = PolicyOrchestrator(
@@ -73,7 +165,19 @@ async def lifespan(app: FastAPI):
     if os.path.exists(seed_path):
         orch.register_seed_policy("seed", seed_path, validated_scenarios=["steady", "bursty", "degraded_network"])
     app.state.orchestrator = orch
+    app.state.ws_clients = set()
+
+    diagnosis_provider = OllamaDiagnosisProvider()
+    monitor = EscalationDiagnosisMonitor(diagnosis_provider, on_diagnosis=_make_diagnosis_callback(app, orch))
+    monitor_task = asyncio.create_task(monitor.run_forever())
+    tail_task = asyncio.create_task(_tail_action_log_loop(app, monitor, _ACTION_LOG_PATH))
+
     yield
+
+    for task in (monitor_task, tail_task):
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
 
 
 app = FastAPI(title="DevMind Orchestrator Dashboard", version="0.1.0", lifespan=lifespan)
@@ -167,6 +271,38 @@ async def list_recalibrations() -> str:
     )
 
 
+@app.get("/diagnoses", response_class=HTMLResponse)
+async def list_diagnoses() -> str:
+    orch: PolicyOrchestrator = app.state.orchestrator
+    entries = []
+    if os.path.exists(orch.log_path):
+        with open(orch.log_path) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    entries.append(json.loads(line))
+    rows = ""
+    for row in reversed(entries):
+        if row.get("event") != "diagnosis_generated":
+            continue
+        ok = "yes" if row.get("parsed_ok") else "no (unparseable)"
+        rows += (
+            "<tr>"
+            f"<td>{row.get('timestamp')}</td><td>{row.get('client')}</td>"
+            f"<td>{row.get('summary')}</td><td>{row.get('likely_cause')}</td>"
+            f"<td>{row.get('resource_recommendation')}</td>"
+            f"<td>{row.get('model_used')}</td><td>{_fmt_num(row.get('latency_ms'))}</td><td>{ok}</td>"
+            "</tr>"
+        )
+    return (
+        '<table id="diagnoses-table">'
+        "<thead><tr>"
+        "<th>Timestamp</th><th>Client</th><th>Summary</th><th>Likely cause</th>"
+        "<th>Resource recommendation</th><th>Model</th><th>Latency (ms)</th><th>Parsed OK</th>"
+        f"</tr></thead><tbody>{rows}</tbody></table>"
+    )
+
+
 @app.post("/clients")
 async def add_client(req: ClientRequest) -> dict:
     orch: PolicyOrchestrator = app.state.orchestrator
@@ -180,7 +316,32 @@ async def add_client(req: ClientRequest) -> dict:
 
 @app.get("/health")
 async def health() -> dict:
-    return {"status": "ok", "service": "devmind-orchestrator"}
+    # Live monitoring depends on request_log.jsonl being visible on this
+    # process's filesystem -- true today (same host, or the shared Docker
+    # volume in the GCP deployment), but silent if that stops being true: the
+    # tail loop just sees a file that never grows, no error anywhere. Surface
+    # it here so an operator can tell "no traffic yet" apart from "wrong path".
+    exists = os.path.exists(_ACTION_LOG_PATH)
+    return {
+        "status": "ok",
+        "service": "devmind-orchestrator",
+        "action_log_path": _ACTION_LOG_PATH,
+        "action_log_exists": exists,
+        "action_log_size_bytes": os.path.getsize(_ACTION_LOG_PATH) if exists else 0,
+    }
+
+
+@app.websocket("/ws")
+async def ws_endpoint(websocket: WebSocket) -> None:
+    await websocket.accept()
+    websocket.app.state.ws_clients.add(websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        websocket.app.state.ws_clients.discard(websocket)
 
 
 _DASHBOARD_HTML = """<!doctype html>
@@ -198,6 +359,11 @@ table { width: 100%; border-collapse: collapse; margin-top: 1.5rem; }
 th, td { text-align: left; border-bottom: 1px solid #ccc; padding: 0.4rem; font-size: 0.85rem; }
 #result { margin-top: 1rem; font-size: 0.9rem; white-space: pre-wrap; }
 #custom-fields { display: none; }
+#escalation-chart { width: 100%; height: 160px; border: 1px solid #ccc; margin-top: 0.5rem; }
+#ws-status { font-size: 0.8rem; color: #888; }
+#notifications { list-style: none; padding: 0; margin-top: 0.5rem; }
+#notifications li { border-left: 4px solid #c0392b; background: #fdecea; padding: 0.5rem 0.75rem; margin-bottom: 0.5rem; font-size: 0.85rem; }
+#notifications li .meta { color: #666; font-size: 0.75rem; }
 </style>
 </head>
 <body>
@@ -240,12 +406,22 @@ th, td { text-align: left; border-bottom: 1px solid #ccc; padding: 0.4rem; font-
   <tbody></tbody>
 </table>
 
+<h1>Live Monitoring <span id="ws-status">connecting...</span></h1>
+<p style="font-size:0.85rem;color:#666">Rolling escalation rate per client, computed client-side from a live websocket feed. Urgent notifications fire when a client's escalation rate stays &ge;95% for a sustained window, diagnosed by a local LLM off the request path.</p>
+<canvas id="escalation-chart"></canvas>
+<h2 style="font-size:1rem;margin-top:1rem;">Urgent Attention</h2>
+<ul id="notifications"></ul>
+
 <h1>Decision Log</h1>
 <div id="decisions-container" style="overflow-x:auto"></div>
 
 <h1>Threshold Recalibrations</h1>
 <p style="font-size:0.85rem;color:#666">Governance-layer self-improvement: tolerance thresholds adjusted from the orchestrator's own false-reuse track record, every 5 onboarding calls.</p>
 <div id="recalibrations-container" style="overflow-x:auto"></div>
+
+<h1>Diagnosis History</h1>
+<p style="font-size:0.85rem;color:#666">Past LLM diagnoses (local Ollama), one row per sustained-escalation event that triggered the diagnosis monitor.</p>
+<div id="diagnoses-container" style="overflow-x:auto"></div>
 
 <script>
 const scenarioSelect = document.getElementById("scenario-select");
@@ -276,6 +452,11 @@ async function refreshRecalibrations() {
   document.getElementById("recalibrations-container").innerHTML = await res.text();
 }
 
+async function refreshDiagnoses() {
+  const res = await fetch("/diagnoses");
+  document.getElementById("diagnoses-container").innerHTML = await res.text();
+}
+
 document.getElementById("add-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const form = new FormData(e.target);
@@ -292,11 +473,122 @@ document.getElementById("add-form").addEventListener("submit", async (e) => {
   await refreshClients();
   await refreshDecisions();
   await refreshRecalibrations();
+  await refreshDiagnoses();
 });
 
 refreshClients();
 refreshDecisions();
 refreshRecalibrations();
+refreshDiagnoses();
+
+// --- Live monitoring: websocket-fed rolling escalation chart + urgent notifications ---
+const ROLLING_WINDOW = 20;
+const MAX_POINTS = 100;
+const clientSeries = {};   // client -> { events: [bool escalated,...], points: [rate,...] }
+const chartColors = ["#2563eb", "#c0392b", "#16a34a", "#d97706", "#7c3aed", "#0891b2"];
+const clientColor = {};
+let colorIdx = 0;
+
+function colorFor(client) {
+  if (!(client in clientColor)) {
+    clientColor[client] = chartColors[colorIdx % chartColors.length];
+    colorIdx++;
+  }
+  return clientColor[client];
+}
+
+function drawChart() {
+  const canvas = document.getElementById("escalation-chart");
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+
+  ctx.strokeStyle = "#eee";
+  for (let i = 0; i <= 4; i++) {
+    const y = h - (h * i) / 4;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+  }
+
+  const clients = Object.keys(clientSeries);
+  if (clients.length === 0) {
+    ctx.fillStyle = "#999"; ctx.font = "12px system-ui";
+    ctx.fillText("waiting for live traffic...", 8, 20);
+    return;
+  }
+
+  for (const client of clients) {
+    const pts = clientSeries[client].points;
+    if (pts.length < 2) continue;
+    ctx.strokeStyle = colorFor(client);
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    pts.forEach((rate, i) => {
+      const x = (i / (MAX_POINTS - 1)) * w;
+      const y = h - rate * h;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }
+
+  let lx = 8, ly = 14;
+  ctx.font = "11px system-ui";
+  for (const client of clients) {
+    ctx.fillStyle = colorFor(client);
+    ctx.fillRect(lx, ly - 8, 8, 8);
+    ctx.fillStyle = "#333";
+    const label = `${client} (${(clientSeries[client].points.slice(-1)[0] * 100).toFixed(0)}%)`;
+    ctx.fillText(label, lx + 12, ly);
+    lx += ctx.measureText(label).width + 30;
+  }
+}
+
+function addNotification(msg) {
+  const ul = document.getElementById("notifications");
+  const li = document.createElement("li");
+  const ok = msg.parsed_ok === false ? " (diagnosis unparseable)" : "";
+  li.innerHTML = `<strong>${msg.client}</strong>${ok}: ${msg.summary}<br>` +
+    `<em>Likely cause:</em> ${msg.likely_cause}<br>` +
+    `<em>Needs:</em> ${msg.resource_recommendation}` +
+    `<div class="meta">${msg.timestamp}</div>`;
+  ul.prepend(li);
+  while (ul.children.length > 20) ul.removeChild(ul.lastChild);
+}
+
+function connectWs() {
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  const ws = new WebSocket(`${proto}//${location.host}/ws`);
+  const statusEl = document.getElementById("ws-status");
+
+  ws.onopen = () => { statusEl.textContent = "live"; statusEl.style.color = "#16a34a"; };
+  ws.onclose = () => {
+    statusEl.textContent = "disconnected, retrying...";
+    statusEl.style.color = "#c0392b";
+    setTimeout(connectWs, 3000);
+  };
+  ws.onerror = () => ws.close();
+
+  ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+    if (msg.type === "escalation_point") {
+      const series = clientSeries[msg.client] || (clientSeries[msg.client] = { events: [], points: [] });
+      series.events.push(msg.action === "ESCALATE_TO_CLOUD");
+      if (series.events.length > ROLLING_WINDOW) series.events.shift();
+      const rate = series.events.filter(Boolean).length / series.events.length;
+      series.points.push(rate);
+      if (series.points.length > MAX_POINTS) series.points.shift();
+      drawChart();
+    } else if (msg.type === "notification") {
+      addNotification(msg);
+      refreshDiagnoses();
+    }
+  };
+}
+
+connectWs();
+window.addEventListener("resize", drawChart);
 </script>
 </body>
 </html>
@@ -313,5 +605,78 @@ def main() -> None:
     uvicorn.run(app, host="0.0.0.0", port=port)
 
 
+def demo() -> None:
+    import tempfile
+    from types import SimpleNamespace
+
+    async def _run() -> None:
+        class FakeWS:
+            def __init__(self) -> None:
+                self.received: list[dict] = []
+
+            async def send_json(self, msg: dict) -> None:
+                self.received.append(msg)
+
+        class DeadWS:
+            async def send_json(self, msg: dict) -> None:
+                raise RuntimeError("connection closed")
+
+        ws = FakeWS()
+        fake_app = SimpleNamespace(state=SimpleNamespace(ws_clients={ws}))
+        await _broadcast(fake_app, {"type": "ping"})
+        assert ws.received == [{"type": "ping"}]
+
+        dead = DeadWS()
+        fake_app2 = SimpleNamespace(state=SimpleNamespace(ws_clients={dead}))
+        await _broadcast(fake_app2, {"type": "ping"})
+        assert dead not in fake_app2.state.ws_clients, "a socket that raises on send must be dropped"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = f"{tmp}/decisions.jsonl"
+            orch = SimpleNamespace(log_path=log_path)
+            diagnosis = Diagnosis(
+                summary="s", likely_cause="c", resource_recommendation="r",
+                model_used="m", latency_ms=42.0, raw_response="{}",
+            )
+            _log_diagnosis(orch, "client_babcock", diagnosis)
+            with open(log_path) as f:
+                row = json.loads(f.readline())
+            assert row["event"] == "diagnosis_generated"
+            assert row["client"] == "client_babcock"
+            assert row["summary"] == "s"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = f"{tmp}/request_log.jsonl"
+            with open(path, "w") as f:
+                f.write(json.dumps({"client": "c1", "action": "ESCALATE_TO_CLOUD", "sla_met": False}) + "\n")
+
+            notified: list[tuple[str, dict]] = []
+
+            class FakeMonitor:
+                def notify(self, client_id: str, row: dict) -> None:
+                    notified.append((client_id, row))
+
+            ws3 = FakeWS()
+            fake_app3 = SimpleNamespace(state=SimpleNamespace(ws_clients={ws3}))
+            task = asyncio.create_task(_tail_action_log_loop(fake_app3, FakeMonitor(), path))
+            for _ in range(50):
+                if notified:
+                    break
+                await asyncio.sleep(0.05)
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+            assert notified == [("c1", {"client": "c1", "action": "ESCALATE_TO_CLOUD", "sla_met": False})]
+            assert any(m.get("type") == "escalation_point" for m in ws3.received)
+
+    asyncio.run(_run())
+    print("orchestrator_app self-check passed")
+
+
 if __name__ == "__main__":
-    main()
+    import sys
+
+    if len(sys.argv) > 1 and sys.argv[1] == "--selfcheck":
+        demo()
+    else:
+        main()
