@@ -70,10 +70,10 @@ class MiscalibrationClassifier:
         return self._model is not None
 
 
-def compute_calibration_delta(confidence_raw: float, cpu: float, thermal: float) -> float:
+def compute_calibration_delta(confidence_raw: float, cpu: float, thermal: float) -> tuple[float, float]:
     temp = 1.0 + 0.5 * cpu + 0.3 * thermal
     calibrated = 1.0 / (1.0 + np.exp(-(np.log(confidence_raw / (1.0 - confidence_raw + 1e-8)) / temp)))
-    return float(abs(confidence_raw - calibrated))
+    return float(calibrated), float(abs(confidence_raw - calibrated))
 
 
 class EdgeDevice:
@@ -116,8 +116,7 @@ class EdgeDevice:
     ) -> EdgeContextReport:
         cpu = self._resource_stress.cpu
         thermal = self._resource_stress.thermal
-        calibrated = confidence_raw - compute_calibration_delta(confidence_raw, cpu, thermal)
-        delta = abs(confidence_raw - calibrated)
+        calibrated, delta = compute_calibration_delta(confidence_raw, cpu, thermal)
 
         if is_correct is not None:
             self._error_buffer.append(not is_correct)
@@ -160,3 +159,24 @@ class EdgeDevice:
         if len(self._error_buffer) > 60:
             self._error_buffer.pop(0)
         self._trust_ewma.update(1.0 if (sla_met and accuracy >= 0.5) else 0.0)
+
+
+def demo() -> None:
+    calibrated_lo, delta_lo = compute_calibration_delta(0.3, cpu=0.8, thermal=0.5)
+    assert calibrated_lo > 0.3, "temperature scaling must push low confidence toward 0.5, not always down"
+    assert abs(delta_lo - abs(0.3 - calibrated_lo)) < 1e-9
+
+    calibrated_hi, _ = compute_calibration_delta(0.9, cpu=0.8, thermal=0.5)
+    assert calibrated_hi < 0.9, "temperature scaling must pull high confidence down toward 0.5"
+
+    device = EdgeDevice()
+    device.apply_stress(cpu=0.8, thermal=0.5)
+    report = device.emit_report(0.3)
+    assert abs(report.confidence_calibrated - calibrated_lo) < 1e-9, (
+        "emit_report must use the signed calibrated value, not raw-minus-unsigned-delta"
+    )
+    print("edge self-check passed")
+
+
+if __name__ == "__main__":
+    demo()

@@ -81,8 +81,11 @@ class TextClassificationDataset:
         return sum(1 for l in labels if l > 0) / len(labels) if labels else 0.0
 
     def shuffle_train(self) -> None:
-        train = self.train
-        self._rng.shuffle(train)
+        train_idx = [i for i, s in enumerate(self._samples) if s.split == "train"]
+        train_samples = [self._samples[i] for i in train_idx]
+        self._rng.shuffle(train_samples)
+        for i, s in zip(train_idx, train_samples):
+            self._samples[i] = s
 
 
 def load_task_dataset(task: str, max_samples: int | None = None) -> TextClassificationDataset:
@@ -102,3 +105,25 @@ class JigsawDataset(TextClassificationDataset):
     @property
     def toxic_ratio(self) -> float:
         return self.positive_ratio
+
+
+def demo() -> None:
+    ds = TextClassificationDataset.__new__(TextClassificationDataset)
+    ds._samples = [
+        Sample(text=f"t{i}", label=0, split="train" if i < 6 else ("val" if i < 8 else "test"))
+        for i in range(10)
+    ]
+    ds._rng = np.random.default_rng(0)
+
+    before = [s.text for s in ds.train]
+    ds.shuffle_train()
+    after = [s.text for s in ds.train]
+    assert sorted(before) == sorted(after), "shuffle must not lose or duplicate train samples"
+    assert before != after, "shuffle_train must actually reorder the underlying samples, not a throwaway copy"
+    assert [s.text for s in ds.val] == ["t6", "t7"], "shuffling train must not touch val"
+    assert [s.text for s in ds.test] == ["t8", "t9"], "shuffling train must not touch test"
+    print("dataset self-check passed")
+
+
+if __name__ == "__main__":
+    demo()
