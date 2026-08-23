@@ -47,6 +47,34 @@ class DiagnosisContext:
 
 
 @dataclass
+class ThresholdDiagnosisContext:
+    client_id: str
+    scenario: str
+    max_sla_violation_rate: float
+    max_escalation_rate: float
+    min_accuracy: float
+    achieved_sla_violation_rate: float
+    achieved_escalation_rate: float
+    achieved_accuracy: float
+
+    def to_prompt(self) -> str:
+        return (
+            f"Client '{self.client_id}' set these onboarding requirements for scenario "
+            f"'{self.scenario}': sla_violation_rate<={self.max_sla_violation_rate:.2f}, "
+            f"escalation_rate<={self.max_escalation_rate:.2f}, accuracy>={self.min_accuracy:.2f}. "
+            f"A policy freshly trained specifically for this scenario still measured "
+            f"sla_violation_rate={self.achieved_sla_violation_rate:.2f}, "
+            f"escalation_rate={self.achieved_escalation_rate:.2f}, "
+            f"accuracy={self.achieved_accuracy:.2f}, and did not meet the requirement.\n"
+            "Diagnose whether this requirement is realistically achievable for this traffic "
+            "scenario given the gap, and what should change: the requirement itself, the "
+            "scenario's infrastructure (e.g. network/RTT), or something else. Respond with "
+            'ONLY this exact JSON shape, nothing else: {"summary": "one sentence", '
+            '"likely_cause": "one sentence", "resource_recommendation": "one sentence"}'
+        )
+
+
+@dataclass
 class Diagnosis:
     summary: str
     likely_cause: str

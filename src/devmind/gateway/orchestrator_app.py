@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from devmind.dataset import TASK_DATASETS
 from devmind.diagnosis import Diagnosis, OllamaDiagnosisProvider
 from devmind.environment import ScenarioConfig
-from devmind.orchestrator import EscalationDiagnosisMonitor, PolicyOrchestrator
+from devmind.orchestrator import EscalationDiagnosisMonitor, PolicyOrchestrator, ToleranceThresholds
 
 _PRESETS = {
     "steady": ScenarioConfig.steady,
@@ -39,6 +39,9 @@ class ClientRequest(BaseModel):
     edge_stress_prob: float = 0.1
     edge_degrade_prob: float = 0.02
     max_samples: int = 200
+    max_sla_violation_rate: float | None = None
+    max_escalation_rate: float | None = None
+    min_accuracy: float | None = None
 
     @property
     def onboarding_id(self) -> str:
@@ -77,10 +80,11 @@ async def _broadcast(app: FastAPI, message: dict) -> None:
         app.state.ws_clients.discard(ws)
 
 
-def _log_diagnosis(orch: PolicyOrchestrator, client_id: str, diagnosis: Diagnosis) -> None:
+def _log_diagnosis(orch: PolicyOrchestrator, client_id: str, diagnosis: Diagnosis, reason: str = "escalation") -> None:
     entry = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "event": "diagnosis_generated",
+        "reason": reason,
         "client": client_id,
         "summary": diagnosis.summary,
         "likely_cause": diagnosis.likely_cause,
@@ -94,15 +98,19 @@ def _log_diagnosis(orch: PolicyOrchestrator, client_id: str, diagnosis: Diagnosi
         f.write(json.dumps(entry) + "\n")
 
 
-def _make_diagnosis_callback(app: FastAPI, orch: PolicyOrchestrator):
+def _make_diagnosis_callback(app: FastAPI, orch: PolicyOrchestrator, reason: str = "escalation"):
+    # ponytail: onboard() (and therefore _diagnose_unreachable_threshold) runs inside
+    # run_in_executor's worker thread, not the event-loop thread, so scheduling the
+    # broadcast must be thread-safe. run_coroutine_threadsafe works from either thread.
     def _callback(client_id: str, diagnosis: Diagnosis) -> None:
-        _log_diagnosis(orch, client_id, diagnosis)
-        asyncio.create_task(
+        _log_diagnosis(orch, client_id, diagnosis, reason)
+        asyncio.run_coroutine_threadsafe(
             _broadcast(
                 app,
                 {
                     "type": "notification",
                     "severity": "urgent",
+                    "reason": reason,
                     "client": client_id,
                     "summary": diagnosis.summary,
                     "likely_cause": diagnosis.likely_cause,
@@ -110,7 +118,8 @@ def _make_diagnosis_callback(app: FastAPI, orch: PolicyOrchestrator):
                     "parsed_ok": diagnosis.parsed_ok,
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 },
-            )
+            ),
+            app.state.loop,
         )
 
     return _callback
@@ -154,20 +163,24 @@ async def _tail_action_log_loop(app: FastAPI, monitor: EscalationDiagnosisMonito
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    app.state.ws_clients = set()
+    app.state.loop = asyncio.get_running_loop()
+
+    diagnosis_provider = OllamaDiagnosisProvider()
     orch = PolicyOrchestrator(
         library_dir=os.environ.get("DEVMIND_POLICY_LIBRARY_DIR", "policy_library"),
         log_path=os.environ.get("DEVMIND_DECISION_LOG", "docs/evaluation/orchestrator_decisions.jsonl"),
         fine_tune_steps=int(os.environ.get("DEVMIND_FINE_TUNE_STEPS", "2000")),
         train_new_steps=int(os.environ.get("DEVMIND_TRAIN_NEW_STEPS", "8000")),
         eval_n_runs=1,
+        diagnosis_provider=diagnosis_provider,
     )
+    orch.on_threshold_diagnosis = _make_diagnosis_callback(app, orch, reason="threshold_too_tight")
     seed_path = os.environ.get("DEVMIND_POLICY_PATH", "ppo_policy.pt")
     if os.path.exists(seed_path):
         orch.register_seed_policy("seed", seed_path, validated_scenarios=["steady", "bursty", "degraded_network"])
     app.state.orchestrator = orch
-    app.state.ws_clients = set()
 
-    diagnosis_provider = OllamaDiagnosisProvider()
     monitor = EscalationDiagnosisMonitor(diagnosis_provider, on_diagnosis=_make_diagnosis_callback(app, orch))
     monitor_task = asyncio.create_task(monitor.run_forever())
     tail_task = asyncio.create_task(_tail_action_log_loop(app, monitor, _ACTION_LOG_PATH))
@@ -308,6 +321,16 @@ async def add_client(req: ClientRequest) -> dict:
     orch: PolicyOrchestrator = app.state.orchestrator
     scenario = _scenario_from_request(req)
     oid = req.onboarding_id
+    if req.max_sla_violation_rate is not None or req.max_escalation_rate is not None or req.min_accuracy is not None:
+        defaults = ToleranceThresholds()
+        orch.set_client_thresholds(
+            oid,
+            ToleranceThresholds(
+                max_sla_violation_rate=req.max_sla_violation_rate or defaults.max_sla_violation_rate,
+                max_escalation_rate=req.max_escalation_rate or defaults.max_escalation_rate,
+                min_accuracy=req.min_accuracy or defaults.min_accuracy,
+            ),
+        )
     loop = asyncio.get_running_loop()
     decision = await loop.run_in_executor(None, orch.onboard, oid, scenario, req.max_samples)
     assigned = next(pid for pid, rec in orch.library.items() if oid in rec.clients_assigned)

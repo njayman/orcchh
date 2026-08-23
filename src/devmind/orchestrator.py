@@ -15,7 +15,7 @@ import numpy as np
 import torch
 
 from devmind.agent import AgenticOrchestrator, PPONetwork
-from devmind.diagnosis import Diagnosis, DiagnosisContext, DiagnosisProvider
+from devmind.diagnosis import Diagnosis, DiagnosisContext, DiagnosisProvider, ThresholdDiagnosisContext
 from devmind.environment import InferenceGatewayEnv, ScenarioConfig
 from devmind.evaluation import EvalMetrics, average_metrics, make_env, ppo_policy, run_episode
 from devmind.models import EdgeContextReport, OperationalState
@@ -98,9 +98,14 @@ class PolicyOrchestrator:
         fine_tune_steps: int = 5_000,
         train_new_steps: int = 50_000,
         eval_n_runs: int = 3,
+        diagnosis_provider: DiagnosisProvider | None = None,
+        on_threshold_diagnosis: Callable[[str, Diagnosis], None] | None = None,
     ):
         self.library_dir = library_dir
         self.thresholds = thresholds or ToleranceThresholds()
+        self.client_thresholds: dict[str, ToleranceThresholds] = {}
+        self.diagnosis_provider = diagnosis_provider
+        self.on_threshold_diagnosis = on_threshold_diagnosis
         self.library: dict[str, PolicyRecord] = {}
         self._edge_model_override = edge_model
         self._cloud_model_override = cloud_model
@@ -130,24 +135,64 @@ class PolicyOrchestrator:
     def register_seed_policy(self, policy_id: str, checkpoint_path: str, validated_scenarios: list[str]) -> None:
         self.library[policy_id] = PolicyRecord(policy_id, checkpoint_path, validated_scenarios)
 
+    def set_client_thresholds(self, client: str, thresholds: ToleranceThresholds) -> None:
+        """Let a company set its own onboarding bar (max_sla_violation_rate,
+        max_escalation_rate, min_accuracy) instead of the shared default. Once set,
+        recalibrate_thresholds() (which only ever adjusts self.thresholds, the
+        default) no longer drifts this client's bar."""
+        self.client_thresholds[client] = thresholds
+
+    def _thresholds_for(self, client: str) -> ToleranceThresholds:
+        return self.client_thresholds.get(client, self.thresholds)
+
+    def _diagnose_unreachable_threshold(
+        self, client: str, scenario: ScenarioConfig, thresholds: ToleranceThresholds, metrics: EvalMetrics
+    ) -> None:
+        """Governance-time: a policy freshly trained/fine-tuned specifically for this
+        scenario still misses the client's own tolerance thresholds. That's evidence
+        the requirement itself may be unreachable for this scenario (e.g. RTT alone
+        exceeds the SLA budget), not that training needs another attempt. Ask the LLM
+        diagnosis provider to explain it, reusing the same off-the-fast-path pattern
+        as EscalationDiagnosisMonitor. No-op if no provider is configured."""
+        if self.diagnosis_provider is None:
+            return
+        context = ThresholdDiagnosisContext(
+            client_id=client,
+            scenario=scenario.name,
+            max_sla_violation_rate=thresholds.max_sla_violation_rate,
+            max_escalation_rate=thresholds.max_escalation_rate,
+            min_accuracy=thresholds.min_accuracy,
+            achieved_sla_violation_rate=metrics.sla_violation_rate,
+            achieved_escalation_rate=metrics.escalation_rate,
+            achieved_accuracy=metrics.accuracy,
+        )
+        diagnosis = asyncio.run(self.diagnosis_provider.diagnose(context))
+        if self.on_threshold_diagnosis is not None:
+            self.on_threshold_diagnosis(client, diagnosis)
+
     def onboard(
         self, client: str, scenario: ScenarioConfig, max_samples: int = 500, trigger: str = "onboarding"
     ) -> PolicyDecision:
+        thresholds = self._thresholds_for(client)
         candidates = {
             pid: self._evaluate(rec.checkpoint_path, scenario, max_samples)
             for pid, rec in self.library.items()
         }
-        decision, chosen = select_decision(candidates, self.thresholds)
+        decision, chosen = select_decision(candidates, thresholds)
         decision_metrics = candidates.get(chosen)
 
         if decision == PolicyDecision.FINE_TUNE:
             chosen = self._fine_tune(chosen, scenario)
             post_metrics = self._evaluate(self.library[chosen].checkpoint_path, scenario, max_samples)
             self.calibrate_training_steps(decision, post_metrics)
+            if not _meets_tolerance(post_metrics, thresholds):
+                self._diagnose_unreachable_threshold(client, scenario, thresholds, post_metrics)
         elif decision == PolicyDecision.TRAIN_NEW:
             chosen = self._train_new(client, scenario)
             post_metrics = self._evaluate(self.library[chosen].checkpoint_path, scenario, max_samples)
             self.calibrate_training_steps(decision, post_metrics)
+            if not _meets_tolerance(post_metrics, thresholds):
+                self._diagnose_unreachable_threshold(client, scenario, thresholds, post_metrics)
 
         rec = self.library[chosen]
         if scenario.name not in rec.validated_scenarios:
@@ -158,7 +203,7 @@ class PolicyOrchestrator:
         if decision_metrics is not None:
             self.calibrate_fallback_ceiling(client, decision_metrics)
 
-        self._log_decision(client, scenario, candidates, decision, chosen, trigger)
+        self._log_decision(client, scenario, candidates, decision, chosen, trigger, thresholds)
         self._onboard_count += 1
         if self._onboard_count % self.recalibrate_every == 0:
             self.recalibrate_thresholds()
@@ -222,8 +267,10 @@ class PolicyOrchestrator:
         decision: PolicyDecision,
         chosen: str,
         trigger: str = "onboarding",
+        thresholds: ToleranceThresholds | None = None,
     ) -> None:
-        signal = dominant_signal(candidates[chosen], self.thresholds) if chosen in candidates else "n/a_new_policy"
+        thresholds = thresholds or self.thresholds
+        signal = dominant_signal(candidates[chosen], thresholds) if chosen in candidates else "n/a_new_policy"
         entry = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "client": client,
@@ -751,6 +798,30 @@ def demo() -> None:
         result = orch.recalibrate_thresholds()
         assert result is not None and result["changed"]
         assert orch.thresholds.max_sla_violation_rate < ToleranceThresholds().max_sla_violation_rate
+
+    with tempfile.TemporaryDirectory() as tmp:
+        thresh_orch = PolicyOrchestrator(
+            library_dir=os.path.join(tmp, "lib"),
+            log_path=os.path.join(tmp, "decisions.jsonl"),
+            diagnosis_provider=_ScriptedDiagnosisProvider(),
+        )
+        assert thresh_orch._thresholds_for("unset_client").max_sla_violation_rate == thresh_orch.thresholds.max_sla_violation_rate
+
+        strict = ToleranceThresholds(max_sla_violation_rate=0.01, max_escalation_rate=0.05, min_accuracy=0.99)
+        thresh_orch.set_client_thresholds("strict_client", strict)
+        assert thresh_orch._thresholds_for("strict_client") is strict
+        assert thresh_orch._thresholds_for("other_client").max_sla_violation_rate != strict.max_sla_violation_rate
+
+        received: list[tuple[str, Diagnosis]] = []
+        thresh_orch.on_threshold_diagnosis = lambda client, diag: received.append((client, diag))
+        unmet = EvalMetrics(accuracy=0.7, sla_violation_rate=0.5, escalation_rate=0.9)
+        thresh_orch._diagnose_unreachable_threshold("strict_client", ScenarioConfig(name="degraded"), strict, unmet)
+        assert len(received) == 1 and received[0][0] == "strict_client", (
+            "a requirement no fresh policy can meet must trigger the LLM diagnosis callback"
+        )
+
+        no_provider_orch = PolicyOrchestrator(library_dir=os.path.join(tmp, "lib2"), log_path=os.path.join(tmp, "d2.jsonl"))
+        no_provider_orch._diagnose_unreachable_threshold("c", ScenarioConfig(name="degraded"), strict, unmet)
 
     print("orchestrator self-check passed")
 
