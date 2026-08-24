@@ -75,6 +75,50 @@ class ThresholdDiagnosisContext:
 
 
 @dataclass
+class GovernanceReviewContext:
+    client_id: str
+    scenario: str
+    rule_decision: str
+    candidate_metrics: dict[str, dict]
+    max_sla_violation_rate: float
+    max_escalation_rate: float
+    min_accuracy: float
+
+    def to_prompt(self) -> str:
+        candidates = "; ".join(
+            f"{pid}: accuracy={m.get('accuracy', 0):.2f}, "
+            f"sla_violation_rate={m.get('sla_violation_rate', 0):.2f}, "
+            f"escalation_rate={m.get('escalation_rate', 0):.2f}"
+            for pid, m in self.candidate_metrics.items()
+        ) or "(no existing candidate policies)"
+        return (
+            f"Client '{self.client_id}', scenario '{self.scenario}'. Requirements: "
+            f"sla_violation_rate<={self.max_sla_violation_rate:.2f}, "
+            f"escalation_rate<={self.max_escalation_rate:.2f}, accuracy>={self.min_accuracy:.2f}.\n"
+            f"Candidate policies evaluated: {candidates}.\n"
+            f"The deterministic governance rule chose: '{self.rule_decision}' "
+            "(one of reuse / fine_tune / train_new, in increasing order of cost and caution).\n"
+            "Review this decision. You may only recommend the SAME action or a MORE cautious "
+            "one (reuse -> fine_tune -> train_new) than the rule chose -- you cannot recommend "
+            "a cheaper action than the rule, only agree or escalate for safety. Respond with "
+            'ONLY this exact JSON shape, nothing else: {"agrees": true or false, '
+            '"recommended_decision": "reuse" or "fine_tune" or "train_new", '
+            '"justification": "one sentence"}'
+        )
+
+
+@dataclass
+class DecisionReview:
+    agrees: bool
+    recommended_decision: str
+    justification: str
+    model_used: str
+    latency_ms: float
+    raw_response: str
+    parsed_ok: bool = True
+
+
+@dataclass
 class Diagnosis:
     summary: str
     likely_cause: str
@@ -105,8 +149,9 @@ class OllamaDiagnosisProvider(DiagnosisProvider):
         self.num_predict = num_predict
         self._client = httpx.AsyncClient(timeout=timeout)
 
-    async def diagnose(self, context: DiagnosisContext) -> Diagnosis:
-        prompt = context.to_prompt()
+    async def _generate(self, prompt: str) -> tuple[str, float, Exception | None]:
+        """Shared Ollama call + retry loop for diagnose()/review_decision(). Returns
+        (raw_response, latency_ms, last_exception) -- raw is "" on total failure."""
         start = time.perf_counter()
         last_exc: Exception | None = None
         for _attempt in range(self.max_retries + 1):
@@ -123,20 +168,61 @@ class OllamaDiagnosisProvider(DiagnosisProvider):
                 )
                 resp.raise_for_status()
                 latency_ms = (time.perf_counter() - start) * 1000
-                raw = resp.json()["response"]
-                return self._parse(raw, latency_ms)
+                return resp.json()["response"], latency_ms, None
             except Exception as exc:
                 last_exc = exc
-        latency_ms = (time.perf_counter() - start) * 1000
-        return Diagnosis(
-            summary=f"diagnosis unavailable: {last_exc}",
-            likely_cause="unknown",
-            resource_recommendation="unknown",
-            model_used=self.model,
-            latency_ms=latency_ms,
-            raw_response="",
-            parsed_ok=False,
-        )
+        return "", (time.perf_counter() - start) * 1000, last_exc
+
+    async def diagnose(self, context: DiagnosisContext) -> Diagnosis:
+        raw, latency_ms, exc = await self._generate(context.to_prompt())
+        if exc is not None:
+            return Diagnosis(
+                summary=f"diagnosis unavailable: {exc}",
+                likely_cause="unknown",
+                resource_recommendation="unknown",
+                model_used=self.model,
+                latency_ms=latency_ms,
+                raw_response="",
+                parsed_ok=False,
+            )
+        return self._parse(raw, latency_ms)
+
+    async def review_decision(self, context: GovernanceReviewContext) -> DecisionReview:
+        raw, latency_ms, exc = await self._generate(context.to_prompt())
+        if exc is not None:
+            return DecisionReview(
+                agrees=True,  # fail safe: no override rather than a guess on a cost decision
+                recommended_decision=context.rule_decision,
+                justification=f"review unavailable: {exc}",
+                model_used=self.model,
+                latency_ms=latency_ms,
+                raw_response="",
+                parsed_ok=False,
+            )
+        return self._parse_review(raw, latency_ms, context.rule_decision)
+
+    def _parse_review(self, raw: str, latency_ms: float, rule_decision: str) -> DecisionReview:
+        try:
+            data = json.loads(raw)
+            return DecisionReview(
+                agrees=bool(data.get("agrees", True)),
+                recommended_decision=data.get("recommended_decision", rule_decision),
+                justification=data.get("justification", ""),
+                model_used=self.model,
+                latency_ms=latency_ms,
+                raw_response=raw,
+                parsed_ok=True,
+            )
+        except (json.JSONDecodeError, AttributeError):
+            return DecisionReview(
+                agrees=True,
+                recommended_decision=rule_decision,
+                justification=raw[:300],
+                model_used=self.model,
+                latency_ms=latency_ms,
+                raw_response=raw,
+                parsed_ok=False,
+            )
 
     def _parse(self, raw: str, latency_ms: float) -> Diagnosis:
         try:
@@ -196,6 +282,25 @@ def demo() -> None:
         dominant_fallback_reason="queue_backed_up",
     )
     assert "dominant_fallback_reason=queue_backed_up" in ctx_with_reason.to_prompt()
+
+    review_good = provider._parse_review(
+        '{"agrees": false, "recommended_decision": "train_new", "justification": "j"}', 10.0, "reuse"
+    )
+    assert not review_good.agrees and review_good.recommended_decision == "train_new" and review_good.parsed_ok
+
+    review_bad = provider._parse_review("not json", 10.0, "reuse")
+    assert not review_bad.parsed_ok
+    assert review_bad.agrees, "malformed review output must fail safe (agree, no override)"
+    assert review_bad.recommended_decision == "reuse"
+
+    gov_ctx = GovernanceReviewContext(
+        client_id="c1", scenario="degraded_network", rule_decision="reuse",
+        candidate_metrics={"seed": {"accuracy": 0.8, "sla_violation_rate": 0.1, "escalation_rate": 0.2}},
+        max_sla_violation_rate=0.15, max_escalation_rate=0.6, min_accuracy=0.8,
+    )
+    gov_prompt = gov_ctx.to_prompt()
+    assert "c1" in gov_prompt and "'reuse'" in gov_prompt and "seed:" in gov_prompt
+    assert '"agrees"' in gov_prompt and '"recommended_decision"' in gov_prompt
 
     print("diagnosis self-check passed")
 

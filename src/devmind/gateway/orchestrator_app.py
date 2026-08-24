@@ -125,6 +125,51 @@ def _make_diagnosis_callback(app: FastAPI, orch: PolicyOrchestrator, reason: str
     return _callback
 
 
+def _log_governance_review(orch: PolicyOrchestrator, client_id: str, review) -> None:
+    entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "event": "governance_review",
+        "client": client_id,
+        "agrees": review.agrees,
+        "recommended_decision": review.recommended_decision,
+        "justification": review.justification,
+        "model_used": review.model_used,
+        "latency_ms": review.latency_ms,
+        "parsed_ok": review.parsed_ok,
+    }
+    os.makedirs(os.path.dirname(orch.log_path), exist_ok=True)
+    with open(orch.log_path, "a") as f:
+        f.write(json.dumps(entry) + "\n")
+
+
+def _make_governance_review_callback(app: FastAPI, orch: PolicyOrchestrator):
+    # Same worker-thread caveat as _make_diagnosis_callback -- onboard() runs off
+    # the event loop, so the broadcast has to be scheduled thread-safely.
+    def _callback(client_id: str, review) -> None:
+        _log_governance_review(orch, client_id, review)
+        if review.agrees:
+            return  # routine "confirmed the rule" reviews don't need a live notification
+        asyncio.run_coroutine_threadsafe(
+            _broadcast(
+                app,
+                {
+                    "type": "notification",
+                    "severity": "info",
+                    "reason": "governance_override",
+                    "client": client_id,
+                    "summary": f"LLM escalated onboarding decision to '{review.recommended_decision}'",
+                    "likely_cause": review.justification,
+                    "resource_recommendation": "",
+                    "parsed_ok": review.parsed_ok,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                },
+            ),
+            app.state.loop,
+        )
+
+    return _callback
+
+
 async def _tail_action_log_loop(app: FastAPI, monitor: EscalationDiagnosisMonitor, path: str) -> None:
     offset = 0
     while True:
@@ -174,8 +219,11 @@ async def lifespan(app: FastAPI):
         train_new_steps=int(os.environ.get("DEVMIND_TRAIN_NEW_STEPS", "8000")),
         eval_n_runs=1,
         diagnosis_provider=diagnosis_provider,
+        meta_policy_path=os.environ.get("DEVMIND_META_POLICY_PATH", "meta_policy.pt"),
+        meta_state_stats_path=os.environ.get("DEVMIND_META_STATE_STATS_PATH", "meta_state_stats.json"),
     )
     orch.on_threshold_diagnosis = _make_diagnosis_callback(app, orch, reason="threshold_too_tight")
+    orch.on_governance_review = _make_governance_review_callback(app, orch)
     seed_path = os.environ.get("DEVMIND_POLICY_PATH", "ppo_policy.pt")
     if os.path.exists(seed_path):
         orch.register_seed_policy("seed", seed_path, validated_scenarios=["steady", "bursty", "degraded_network"])
