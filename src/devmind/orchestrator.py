@@ -15,7 +15,14 @@ import numpy as np
 import torch
 
 from devmind.agent import AgenticOrchestrator, PPONetwork
-from devmind.diagnosis import Diagnosis, DiagnosisContext, DiagnosisProvider
+from devmind.diagnosis import (
+    DecisionReview,
+    Diagnosis,
+    DiagnosisContext,
+    DiagnosisProvider,
+    GovernanceReviewContext,
+    ThresholdDiagnosisContext,
+)
 from devmind.environment import InferenceGatewayEnv, ScenarioConfig
 from devmind.evaluation import EvalMetrics, average_metrics, make_env, ppo_policy, run_episode
 from devmind.models import EdgeContextReport, OperationalState
@@ -98,10 +105,31 @@ class PolicyOrchestrator:
         fine_tune_steps: int = 5_000,
         train_new_steps: int = 50_000,
         eval_n_runs: int = 3,
+        diagnosis_provider: DiagnosisProvider | None = None,
+        on_threshold_diagnosis: Callable[[str, Diagnosis], None] | None = None,
+        meta_policy_path: str | None = None,
+        meta_state_stats_path: str | None = None,
+        on_governance_review: Callable[[str, DecisionReview], None] | None = None,
     ):
         self.library_dir = library_dir
         self.thresholds = thresholds or ToleranceThresholds()
+        self.client_thresholds: dict[str, ToleranceThresholds] = {}
+        self.diagnosis_provider = diagnosis_provider
+        self.on_threshold_diagnosis = on_threshold_diagnosis
+        self.on_governance_review = on_governance_review
         self.library: dict[str, PolicyRecord] = {}
+        self.meta_policy = None
+        self.meta_state_mean: np.ndarray | None = None
+        self.meta_state_std: np.ndarray | None = None
+        if meta_policy_path and os.path.exists(meta_policy_path):
+            self.meta_policy = PPONetwork()
+            self.meta_policy.load_state_dict(torch.load(meta_policy_path, map_location="cpu", weights_only=True))
+            self.meta_policy.eval()
+            if meta_state_stats_path and os.path.exists(meta_state_stats_path):
+                with open(meta_state_stats_path) as f:
+                    stats = json.load(f)
+                self.meta_state_mean = np.array(stats["mean"])
+                self.meta_state_std = np.array(stats["std"])
         self._edge_model_override = edge_model
         self._cloud_model_override = cloud_model
         self._edge_models: dict[str, Any] = {}
@@ -130,24 +158,153 @@ class PolicyOrchestrator:
     def register_seed_policy(self, policy_id: str, checkpoint_path: str, validated_scenarios: list[str]) -> None:
         self.library[policy_id] = PolicyRecord(policy_id, checkpoint_path, validated_scenarios)
 
+    def set_client_thresholds(self, client: str, thresholds: ToleranceThresholds) -> None:
+        """Let a company set its own onboarding bar (max_sla_violation_rate,
+        max_escalation_rate, min_accuracy) instead of the shared default. Once set,
+        recalibrate_thresholds() (which only ever adjusts self.thresholds, the
+        default) no longer drifts this client's bar."""
+        self.client_thresholds[client] = thresholds
+
+    def _thresholds_for(self, client: str) -> ToleranceThresholds:
+        return self.client_thresholds.get(client, self.thresholds)
+
+    def _diagnose_unreachable_threshold(
+        self, client: str, scenario: ScenarioConfig, thresholds: ToleranceThresholds, metrics: EvalMetrics
+    ) -> None:
+        """Governance-time: a policy freshly trained/fine-tuned specifically for this
+        scenario still misses the client's own tolerance thresholds. That's evidence
+        the requirement itself may be unreachable for this scenario (e.g. RTT alone
+        exceeds the SLA budget), not that training needs another attempt. Ask the LLM
+        diagnosis provider to explain it, reusing the same off-the-fast-path pattern
+        as EscalationDiagnosisMonitor. No-op if no provider is configured."""
+        if self.diagnosis_provider is None:
+            return
+        context = ThresholdDiagnosisContext(
+            client_id=client,
+            scenario=scenario.name,
+            max_sla_violation_rate=thresholds.max_sla_violation_rate,
+            max_escalation_rate=thresholds.max_escalation_rate,
+            min_accuracy=thresholds.min_accuracy,
+            achieved_sla_violation_rate=metrics.sla_violation_rate,
+            achieved_escalation_rate=metrics.escalation_rate,
+            achieved_accuracy=metrics.accuracy,
+        )
+        diagnosis = asyncio.run(self.diagnosis_provider.diagnose(context))
+        if self.on_threshold_diagnosis is not None:
+            self.on_threshold_diagnosis(client, diagnosis)
+
+    def _meta_decide(
+        self, candidates: dict[str, EvalMetrics], thresholds: ToleranceThresholds, scenario: ScenarioConfig
+    ) -> tuple[PolicyDecision, str | None, bool]:
+        """Learned governance decision (orchestrator_trainer.py's meta-policy) in place
+        of select_decision()'s threshold rule. Mirrors AgenticOrchestrator.decide()'s
+        exact safety pattern (agent.py): entropy > 0.9 or OOD vs. meta_state_stats.json
+        -> fall back to the deterministic rule, never a hard failure. Returns
+        (decision, chosen_candidate_id, fallback_used)."""
+        from devmind.orchestrator_trainer import build_observation
+
+        best_id = (
+            max(candidates, key=lambda pid: candidates[pid].accuracy - candidates[pid].sla_violation_rate)
+            if candidates else None
+        )
+        best_metrics = candidates[best_id] if best_id is not None else EvalMetrics(
+            accuracy=0.0, sla_violation_rate=1.0, escalation_rate=1.0, fallback_rate=1.0
+        )
+        obs = build_observation(best_metrics, thresholds, scenario, library_empty=not candidates)
+
+        state = torch.from_numpy(obs).float().unsqueeze(0)
+        with torch.no_grad():
+            logits, _ = self.meta_policy(state)
+        probs = torch.softmax(logits, dim=-1)
+        dist = torch.distributions.Categorical(probs)
+        action = int(dist.sample().item())
+        entropy = float(dist.entropy().item())
+
+        ood = False
+        if self.meta_state_mean is not None:
+            std = np.maximum(self.meta_state_std, 0.02)
+            z = np.abs((obs - self.meta_state_mean) / std)
+            ood = bool((z > 4.0).sum() >= 2)
+
+        decision = [PolicyDecision.REUSE, PolicyDecision.FINE_TUNE, PolicyDecision.TRAIN_NEW][action]
+        invalid = decision in (PolicyDecision.REUSE, PolicyDecision.FINE_TUNE) and not candidates
+        if entropy > 0.9 or ood or invalid:
+            decision, chosen = select_decision(candidates, thresholds)
+            return decision, chosen, True
+
+        chosen = best_id if decision != PolicyDecision.TRAIN_NEW else None
+        return decision, chosen, False
+
+    _DECISION_ORDER = {PolicyDecision.REUSE: 0, PolicyDecision.FINE_TUNE: 1, PolicyDecision.TRAIN_NEW: 2}
+
+    def _governance_review(
+        self,
+        client: str,
+        scenario: ScenarioConfig,
+        thresholds: ToleranceThresholds,
+        candidates: dict[str, EvalMetrics],
+        decision: PolicyDecision,
+        chosen: str | None,
+    ) -> tuple[PolicyDecision, str | None]:
+        """Option C: an LLM reviews the rule/meta-policy's decision and may only
+        escalate it to something MORE cautious (reuse -> fine_tune -> train_new),
+        never downgrade -- so a hallucinated review can waste compute at worst,
+        never silently authorize an under-provisioned policy. Same off-the-fast-path
+        Ollama plumbing as _diagnose_unreachable_threshold. No-op if no
+        diagnosis_provider is configured, or if already at TRAIN_NEW (nothing to
+        escalate to)."""
+        if self.diagnosis_provider is None or decision == PolicyDecision.TRAIN_NEW:
+            return decision, chosen
+        context = GovernanceReviewContext(
+            client_id=client,
+            scenario=scenario.name,
+            rule_decision=decision.value,
+            candidate_metrics={pid: vars(m) for pid, m in candidates.items()},
+            max_sla_violation_rate=thresholds.max_sla_violation_rate,
+            max_escalation_rate=thresholds.max_escalation_rate,
+            min_accuracy=thresholds.min_accuracy,
+        )
+        review = asyncio.run(self.diagnosis_provider.review_decision(context))
+        if self.on_governance_review is not None:
+            self.on_governance_review(client, review)
+        if not review.parsed_ok:
+            return decision, chosen
+        try:
+            recommended = PolicyDecision(review.recommended_decision)
+        except ValueError:
+            return decision, chosen
+        if self._DECISION_ORDER[recommended] > self._DECISION_ORDER[decision]:
+            new_chosen = None if recommended == PolicyDecision.TRAIN_NEW else chosen
+            return recommended, new_chosen
+        return decision, chosen
+
     def onboard(
         self, client: str, scenario: ScenarioConfig, max_samples: int = 500, trigger: str = "onboarding"
     ) -> PolicyDecision:
+        thresholds = self._thresholds_for(client)
         candidates = {
             pid: self._evaluate(rec.checkpoint_path, scenario, max_samples)
             for pid, rec in self.library.items()
         }
-        decision, chosen = select_decision(candidates, self.thresholds)
+        if self.meta_policy is not None:
+            decision, chosen, _meta_fallback = self._meta_decide(candidates, thresholds, scenario)
+        else:
+            decision, chosen = select_decision(candidates, thresholds)
+        decision, chosen = self._governance_review(client, scenario, thresholds, candidates, decision, chosen)
         decision_metrics = candidates.get(chosen)
 
         if decision == PolicyDecision.FINE_TUNE:
             chosen = self._fine_tune(chosen, scenario)
             post_metrics = self._evaluate(self.library[chosen].checkpoint_path, scenario, max_samples)
             self.calibrate_training_steps(decision, post_metrics)
+            if not _meets_tolerance(post_metrics, thresholds):
+                self._diagnose_unreachable_threshold(client, scenario, thresholds, post_metrics)
         elif decision == PolicyDecision.TRAIN_NEW:
             chosen = self._train_new(client, scenario)
             post_metrics = self._evaluate(self.library[chosen].checkpoint_path, scenario, max_samples)
             self.calibrate_training_steps(decision, post_metrics)
+            if not _meets_tolerance(post_metrics, thresholds):
+                self._diagnose_unreachable_threshold(client, scenario, thresholds, post_metrics)
 
         rec = self.library[chosen]
         if scenario.name not in rec.validated_scenarios:
@@ -158,7 +315,7 @@ class PolicyOrchestrator:
         if decision_metrics is not None:
             self.calibrate_fallback_ceiling(client, decision_metrics)
 
-        self._log_decision(client, scenario, candidates, decision, chosen, trigger)
+        self._log_decision(client, scenario, candidates, decision, chosen, trigger, thresholds)
         self._onboard_count += 1
         if self._onboard_count % self.recalibrate_every == 0:
             self.recalibrate_thresholds()
@@ -222,8 +379,10 @@ class PolicyOrchestrator:
         decision: PolicyDecision,
         chosen: str,
         trigger: str = "onboarding",
+        thresholds: ToleranceThresholds | None = None,
     ) -> None:
-        signal = dominant_signal(candidates[chosen], self.thresholds) if chosen in candidates else "n/a_new_policy"
+        thresholds = thresholds or self.thresholds
+        signal = dominant_signal(candidates[chosen], thresholds) if chosen in candidates else "n/a_new_policy"
         entry = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "client": client,
@@ -302,8 +461,11 @@ class PolicyOrchestrator:
         recalibrate_thresholds(). A client that hits the entropy/OOD fallback often
         should have that fallback err toward not escalating into an already-backed-up
         queue (tighter ceiling); a client that rarely hits it can afford a looser one.
-        Never called from the per-request fast loop — the live CascadeController reads
-        fallback_ceilings[client] when constructing that client's AgenticOrchestrator."""
+        Never called from the per-request fast loop. Computed and logged here, but not
+        yet consumed live: gateway/app.py builds each client's AgenticOrchestrator
+        without reading fallback_ceilings[client] back into it, so this calibration
+        doesn't reach the running gateway process today (same class of gap as
+        DriftEventListener below — verified 2026-08-24)."""
         baseline = AgenticOrchestrator.FALLBACK_QUEUE_WAIT_CEILING
         current = self.fallback_ceilings.get(client, baseline)
         if metrics.fallback_rate > 0.3:
@@ -534,6 +696,8 @@ def run_ablation_7(
     edge_model: Any = None,
     cloud_model: Any = None,
     eval_n_runs: int = 3,
+    meta_policy_path: str | None = None,
+    meta_state_stats_path: str | None = None,
 ) -> dict[str, Any]:
     shared_ppo = PPONetwork()
     shared_ppo.load_state_dict(torch.load(seed_policy_path, map_location="cpu", weights_only=True))
@@ -557,6 +721,8 @@ def run_ablation_7(
         fine_tune_steps=fine_tune_steps,
         train_new_steps=train_new_steps,
         eval_n_runs=eval_n_runs,
+        meta_policy_path=meta_policy_path,
+        meta_state_stats_path=meta_state_stats_path,
     )
     orch.register_seed_policy(
         "seed", seed_policy_path, validated_scenarios=["steady", "bursty", "degraded_network"]
@@ -611,10 +777,21 @@ def main_ablation_7() -> None:
 
 
 class _ScriptedDiagnosisProvider:
+    def __init__(self, review_recommendation: str | None = None):
+        self.review_recommendation = review_recommendation
+
     async def diagnose(self, context: DiagnosisContext) -> Diagnosis:
         return Diagnosis(
             summary="s", likely_cause="c", resource_recommendation="r",
             model_used="test", latency_ms=1.0, raw_response="{}",
+        )
+
+    async def review_decision(self, context: GovernanceReviewContext) -> DecisionReview:
+        recommended = self.review_recommendation or context.rule_decision
+        return DecisionReview(
+            agrees=recommended == context.rule_decision,
+            recommended_decision=recommended,
+            justification="scripted", model_used="test", latency_ms=1.0, raw_response="{}",
         )
 
 
@@ -751,6 +928,80 @@ def demo() -> None:
         result = orch.recalibrate_thresholds()
         assert result is not None and result["changed"]
         assert orch.thresholds.max_sla_violation_rate < ToleranceThresholds().max_sla_violation_rate
+
+    with tempfile.TemporaryDirectory() as tmp:
+        thresh_orch = PolicyOrchestrator(
+            library_dir=os.path.join(tmp, "lib"),
+            log_path=os.path.join(tmp, "decisions.jsonl"),
+            diagnosis_provider=_ScriptedDiagnosisProvider(),
+        )
+        assert thresh_orch._thresholds_for("unset_client").max_sla_violation_rate == thresh_orch.thresholds.max_sla_violation_rate
+
+        strict = ToleranceThresholds(max_sla_violation_rate=0.01, max_escalation_rate=0.05, min_accuracy=0.99)
+        thresh_orch.set_client_thresholds("strict_client", strict)
+        assert thresh_orch._thresholds_for("strict_client") is strict
+        assert thresh_orch._thresholds_for("other_client").max_sla_violation_rate != strict.max_sla_violation_rate
+
+        received: list[tuple[str, Diagnosis]] = []
+        thresh_orch.on_threshold_diagnosis = lambda client, diag: received.append((client, diag))
+        unmet = EvalMetrics(accuracy=0.7, sla_violation_rate=0.5, escalation_rate=0.9)
+        thresh_orch._diagnose_unreachable_threshold("strict_client", ScenarioConfig(name="degraded"), strict, unmet)
+        assert len(received) == 1 and received[0][0] == "strict_client", (
+            "a requirement no fresh policy can meet must trigger the LLM diagnosis callback"
+        )
+
+        no_provider_orch = PolicyOrchestrator(library_dir=os.path.join(tmp, "lib2"), log_path=os.path.join(tmp, "d2.jsonl"))
+        no_provider_orch._diagnose_unreachable_threshold("c", ScenarioConfig(name="degraded"), strict, unmet)
+
+    meta_path = "meta_policy.pt"
+    if os.path.exists(meta_path):
+        meta_orch = PolicyOrchestrator(
+            library_dir=tempfile.mkdtemp(), meta_policy_path=meta_path,
+            meta_state_stats_path="meta_state_stats.json" if os.path.exists("meta_state_stats.json") else None,
+        )
+        assert meta_orch.meta_policy is not None
+        empty_decision, empty_chosen, empty_fallback = meta_orch._meta_decide(
+            {}, ToleranceThresholds(), ScenarioConfig.steady()
+        )
+        assert empty_decision == PolicyDecision.TRAIN_NEW, "empty library must never resolve to REUSE/FINE_TUNE"
+        assert empty_chosen is None
+
+        no_meta_orch = PolicyOrchestrator(library_dir=tempfile.mkdtemp())
+        assert no_meta_orch.meta_policy is None, "no meta_policy_path given -> unchanged deterministic behavior"
+
+    escalate_orch = PolicyOrchestrator(
+        library_dir=tempfile.mkdtemp(), diagnosis_provider=_ScriptedDiagnosisProvider(review_recommendation="train_new")
+    )
+    reviews: list[tuple[str, DecisionReview]] = []
+    escalate_orch.on_governance_review = lambda client, review: reviews.append((client, review))
+    fake_candidates = {"seed": EvalMetrics(accuracy=0.9, sla_violation_rate=0.05, escalation_rate=0.1)}
+    d, c = escalate_orch._governance_review(
+        "c1", ScenarioConfig(name="steady"), ToleranceThresholds(), fake_candidates, PolicyDecision.REUSE, "seed"
+    )
+    assert d == PolicyDecision.TRAIN_NEW and c is None, "LLM must be able to escalate REUSE -> TRAIN_NEW"
+    assert len(reviews) == 1 and reviews[0][0] == "c1"
+
+    no_downgrade_orch = PolicyOrchestrator(
+        library_dir=tempfile.mkdtemp(), diagnosis_provider=_ScriptedDiagnosisProvider(review_recommendation="reuse")
+    )
+    d2, c2 = no_downgrade_orch._governance_review(
+        "c2", ScenarioConfig(name="steady"), ToleranceThresholds(), fake_candidates, PolicyDecision.FINE_TUNE, "seed"
+    )
+    assert d2 == PolicyDecision.FINE_TUNE, "LLM recommending something cheaper than the rule must NOT downgrade it"
+
+    skip_orch = PolicyOrchestrator(
+        library_dir=tempfile.mkdtemp(), diagnosis_provider=_ScriptedDiagnosisProvider(review_recommendation="reuse")
+    )
+    d2b, c2b = skip_orch._governance_review(
+        "c2b", ScenarioConfig(name="steady"), ToleranceThresholds(), fake_candidates, PolicyDecision.TRAIN_NEW, None
+    )
+    assert d2b == PolicyDecision.TRAIN_NEW, "already TRAIN_NEW -> nothing to escalate to, review skipped"
+
+    no_review_orch = PolicyOrchestrator(library_dir=tempfile.mkdtemp())
+    d3, c3 = no_review_orch._governance_review(
+        "c3", ScenarioConfig(name="steady"), ToleranceThresholds(), fake_candidates, PolicyDecision.REUSE, "seed"
+    )
+    assert d3 == PolicyDecision.REUSE and c3 == "seed", "no diagnosis_provider -> unchanged deterministic decision"
 
     print("orchestrator self-check passed")
 

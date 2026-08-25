@@ -303,11 +303,14 @@ class InferenceGatewayEnv(gym.Env):
         weights = self.scenario.reward_weights
         total_w = sum(weights) or 1.0
         w_accuracy, w_sla, w_energy, w_latency = (w / total_w for w in weights)
+        # unclamped: once latency exceeds sla_budget the policy still needs a gradient
+        # away from making it *worse* (e.g. escalating when SLA is already blown).
+        # The outer np.clip(reward, -1, 1) in step() still bounds the total.
         return (
             w_accuracy * accuracy
             + w_sla * (1.0 if sla_met else -0.5)
             + w_energy * (1.0 - energy / 5.0)
-            + w_latency * max(0.0, 1.0 - latency / sla_budget)
+            + w_latency * (1.0 - latency / sla_budget)
         )
 
     def _advance_clock(self, dt: float) -> None:
