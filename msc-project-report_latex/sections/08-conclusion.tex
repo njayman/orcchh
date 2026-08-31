@@ -26,7 +26,7 @@ at roughly 19\% of the escalation rate and 19\% of the energy cost of
 Under steady traffic, the result is more modest and reported as such: a
 simple static threshold is a reasonable, cheap choice when nothing is
 actually stressed, and the proposed system's advantage only appears once
-infrastructure is under load --- which is the condition the whole
+infrastructure is under load. Which is the condition the whole
 architecture was built for, not a condition chosen after the fact to
 flatter the result.
 
@@ -54,9 +54,9 @@ Objective 7 went beyond its original plan. The system was evaluated
 against the five core baselines across three traffic scenarios, plus the
 full seven-run ablation (Section 7.1). Eight literature baselines and a
 governance-layer ablation (Run 7) were added once the Policy
-Orchestration Layer entered scope in Week 7--8 --- a change traced back
-to specific supervisor feedback rather than presented as always having
-been the plan.
+Orchestration Layer entered scope in Week 7--8. A change traced back to
+specific supervisor feedback rather than presented as always having been
+the plan.
 
 Four of the six contributions claimed in Section 2.3 are backed by a
 specific measurement rather than only asserted. The Edge Context
@@ -65,7 +65,7 @@ Protocol's value is isolated in Ablation Run 3 (Section 7.3): adding
 no difference, showing that the Protocol contributes by feeding a
 learned policy, not by adding one more input to an unchanged threshold.
 The bidirectional loop's value is isolated in Ablation Run 4, where
-disabling it costs 5.5 accuracy points under degraded network --- the
+disabling it costs 5.5 accuracy points under degraded network. The
 condition it exists to help with. The policy's learned response to
 per-request SLA-remaining and predicted-RTT signals, shaped by the
 reward function's SLA term, is the mechanism behind the bursty-traffic
@@ -74,18 +74,18 @@ as Section 5 and Section 7.1 both state plainly. The Policy
 Orchestration Layer's governance value is isolated in Ablation Run 7
 (Section 7.4), where LLM-backed review escalates one client's
 under-provisioned decision that the deterministic rule alone would have
-missed. The dynamic Medallion pipeline
-(Contribution 2) is independently measured by the three-way static/
-conditional/agent-driven Silver comparison, Run 5 (Section 7.1): the
-differences are real but modest and scenario-dependent, with no one
-reveal strategy dominating throughout, which is itself the honest
-finding rather than a gap. The MCP skill interface (Contribution 4) is
-independently benchmarked against real HuggingFace inference latency in
-the live request path: perception cost (Bronze to Silver to Gold to
-\textbf{AgenticOrchestrator.decide()}, including the skill interface)
-averages 0.57ms (p95 0.97ms) against a 23.9ms mean real DistilBERT
-forward pass, about 2.4\% of edge inference latency, confirming it sits
-well inside the per-request perception budget claimed in Section 2.3.
+missed. The dynamic Medallion pipeline (Contribution 2) is independently
+measured by the three-way static/ conditional/agent-driven Silver
+comparison, Run 5 (Section 7.1): the differences are real but modest and
+scenario-dependent, with no one reveal strategy dominating throughout,
+which is itself the honest finding rather than a gap. The MCP skill
+interface (Contribution 4) is independently benchmarked against real
+HuggingFace inference latency in the live request path: perception cost
+(Bronze to Silver to Gold to \textbf{AgenticOrchestrator.decide()},
+including the skill interface) averages 0.57ms (p95 0.97ms) against a
+23.9ms mean real DistilBERT forward pass, about 2.4\% of edge inference
+latency, confirming it sits well inside the per-request perception
+budget claimed in Section 2.3.
 
 \hypertarget{limitations-and-future-work}{%
 \subsection{Limitations and future work}\label{limitations-and-future-work}}
@@ -132,10 +132,10 @@ design work, since the signal already exists.
 
 The research question posed in Section 2.1 asked what a genuinely
 context-aware, closed-loop orchestration system buys over a static
-passive threshold. The bursty-traffic result --- zero SLA violations
+passive threshold. The bursty-traffic result (zero SLA violations
 against 64.5--66.0\% for every accuracy-preserving static baseline, at a
-fifth of the energy --- is direct evidence for a specific answer: the
-gain is not uniform across every condition, and this report does not
-claim that it is, but it is largest precisely when infrastructure is
-under the kind of stress that confidence-only systems have no way to
-see happening at all.
+fifth of the energy) is direct evidence for a specific answer: the gain
+is not uniform across every condition, and this report does not claim
+that it is, but it is largest when infrastructure is under the
+kind of stress that confidence-only systems have no way to see happening
+at all.

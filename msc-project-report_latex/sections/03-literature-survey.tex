@@ -49,7 +49,7 @@ taken at split time, not a live cloud queue depth or a per-request SLA
 deadline. It therefore still cannot tell a saturated cloud endpoint from
 a lightly-loaded one. Its split point is also fixed once the network is
 partitioned, rather than adapted from an outcome fed back after the
-request completes --- the same limitation BranchyNet and MSDNet share.
+request completes. The same limitation BranchyNet and MSDNet share.
 
 \hypertarget{learned-single-signal-routers}{%
 \subsection{Learned, single-signal
@@ -90,16 +90,16 @@ without considering such infrastructure changes upon which the routing
 in this paper is based.
 
 GreenServ (Ziller et al., 2026) is the closest of the three learned
-routers on the energy dimension: it routes each query to whichever
-model in a heterogeneous pool of large language models has historically
+routers on the energy dimension: it routes each query to whichever model
+in a heterogeneous pool of large language models has historically
 balanced accuracy and energy use best for a query with that profile,
 using a multi-armed bandit that keeps learning online rather than a
 policy fixed once at training time. That online adaptivity is exactly
 what BranchyNet, MSDNet and EdgeBERT lack. But the context GreenServ
-conditions on is entirely query side --- task type, semantic cluster,
-text complexity --- plus its own model pool's observed accuracy/energy
-history. Like RouteLLM, it has no channel for cloud queue depth, network
-RTT, per-request SLA remaining, or the operational health of the device
+conditions on is entirely query side (task type, semantic cluster, text
+complexity) plus its own model pool's observed accuracy/energy history.
+Like RouteLLM, it has no channel for cloud queue depth, network RTT,
+per-request SLA remaining, or the operational health of the device
 issuing the request, so two structurally identical requests are routed
 identically by GreenServ regardless of whether the infrastructure behind
 them is idle or saturated at that moment.
@@ -137,7 +137,7 @@ in-flight calls), cost-based, and a pluggable custom-strategy interface.
 It also has a cooldown mechanism that temporarily stops routing to a
 deployment after a run of rate-limit or failure responses, and a
 latency cache that records recent response times per deployment. This
-is a genuinely reactive system: it does respond to measured latency and
+is a reactive system: it does respond to measured latency and
 failures. Every one of its strategies is nonetheless a fixed rule
 evaluated against a rolling window of recent responses, so none of them
 is a learned policy. None reads a self-reported edge-device health or
@@ -149,45 +149,46 @@ favours, and if that deployment is slow, the outcome is observed only
 after the fact.
 
 \textbf{Portkey}'s AI Gateway documents its load-balancing as static
-weighted distribution across configured providers or models --- traffic
-is split according to weights the operator sets (e.g.\ for cost
+weighted distribution across configured providers or models. Traffic is
+split according to weights the operator sets (e.g.\ for cost
 optimisation or gradual migration testing), normalised to sum to 100\%,
 not according to a live queue, latency, or health signal measured at
 request time. Portkey's own documentation for this feature makes no
-mention of reinforcement learning, closed-loop adaptation from
-outcomes, or per-request SLA enforcement. Those remain configuration
-choices made by the operator up front, not decisions the gateway itself
-learns or adapts.
+mention of reinforcement learning, closed-loop adaptation from outcomes,
+or per-request SLA enforcement. Those remain configuration choices made
+by the operator up front, not decisions the gateway itself learns or
+adapts.
 
 The wider landscape (OpenRouter, Envoy AI Gateway, Requesty, and
 Martian's now-discontinued standalone "intelligence router") occupies
 the same territory: cost- and latency-aware routing across a pool of
 model providers, marketed as adaptive but, on the evidence available in
 each product's own documentation, implemented as configured rules or a
-pre-trained model-performance predictor rather than a system that
-learns from live infrastructure telemetry and its own routing outcomes.
-None of them is edge-cloud specific in the sense this project is ---
-they route between cloud model providers, not between a resource-constrained edge device and a cloud fallback --- so the edge-health
-self-report, the deadman's switch, and the bidirectional trust loop
-described in Section 5 do not have a commercial analogue to compare
-against at all. This is independently corroborated by Li et al. (2025),
-a systematic survey of edge-cloud LLM collaboration published within
-weeks of this project's own evaluation work: it states plainly that it
-is building "the first systematic foundation" for a unified taxonomy of
-edge-cloud collaboration, and its taxonomy --- organised around task
-assignment, task division, and mixture-based collaboration --- contains
-no category describing a system that combines live infrastructure
-signals, edge self-report, a closed feedback loop, and a learned routing
-policy in one deployment. That gap in a survey published this recently
-is independent evidence the gap is real, not an artefact of this
-project's own literature search missing something that already exists.
+pre-trained model-performance predictor rather than a system that learns
+from live infrastructure telemetry and its own routing outcomes. None of
+them is edge-cloud specific in the sense this project is (they route
+between cloud model providers, not between a resource-constrained edge
+device and a cloud fallback) so the edge-health self-report, the
+deadman's switch, and the bidirectional trust loop described in Section
+5 do not have a commercial analogue to compare against at all. This is
+independently corroborated by Li et al. (2025), a systematic survey of
+edge-cloud LLM collaboration published within weeks of this project's
+own evaluation work: it states plainly that it is building "the first
+systematic foundation" for a unified taxonomy of edge-cloud
+collaboration, and its taxonomy (organised around task assignment, task
+division, and mixture-based collaboration) contains no category
+describing a system that combines live infrastructure signals, edge
+self-report, a closed feedback loop, and a learned routing policy in one
+deployment. That gap in a survey published this recently is independent
+evidence the gap is real, not an artefact of this project's own
+literature search missing something that already exists.
 
 \hypertarget{comparison-and-positioning}{%
 \subsection{Comparison and
 positioning}\label{comparison-and-positioning}}
 
-Table~\ref{tab:comparison} summarises the eleven systems above --- nine from the
-academic literature and two production LLM gateways --- against
+Table~\ref{tab:comparison} summarises the eleven systems above, nine
+from the academic literature and two production LLM gateways, against
 four properties that recur through this chapter: whether the routing
 signal includes anything beyond the request itself (infrastructure
 awareness), whether a per-request deadline is checked before dispatch
@@ -195,60 +196,75 @@ awareness), whether a per-request deadline is checked before dispatch
 decision changes the state the next decision is made from (a closed
 loop). No system reviewed combines all three with a per-request SLA
 check. The closest, Splitwise and the NSGA-II router, are each strong on
-exactly one axis and silent on the other two.
+one axis and silent on the other two.
 
 {\small\setlength{\tabcolsep}{4pt}
 \begin{longtable}{p{2.3cm}p{2.9cm}p{1.5cm}p{1.5cm}p{1.3cm}p{3.2cm}}
-\caption{Comparison of cascade, offloading and gateway systems surveyed in this chapter against this project's system.}\label{tab:comparison}\\
-\toprule
-System & Primary routing signal & Infra-aware & Per-req.\ SLA & Closed loop & Key limitation \\
-\midrule
-\endhead
-BranchyNet (Teerapittayanon et al., 2016) & Softmax entropy at each exit & No & No & No & Exit decision is a function of the input alone, blind to what is downstream \\
-MSDNet (Huang et al., 2018) & Fixed computational budget & No & No & No & Budget is a design-time constant, not a live measurement \\
-EdgeBERT (Tambe et al., 2021) & Entropy-driven on-chip DVFS & Own chip only & No & No & No interface to external signals (cloud queue, network) \\
-SPINN (Laskaridis et al., 2020) & Entropy plus network connectivity & Point measurement & No & No & Connectivity is a split-time reading, not a live queue or deadline \\
-RouteLLM (Ong et al., 2024) & Prompt content, preference-learned & No & No & No & Cannot distinguish a saturated cloud endpoint from a spare one \\
-GreenServ (Ziller et al., 2026) & Query features + model-pool accuracy/energy history & No & No & Yes (online bandit) & Still no cloud queue, RTT, SLA or edge-health channel \\
-NSGA-II router (Yu et al., 2025) & Offline Pareto front over quality/latency/cost & Yes, offline & No & No & Fixed once optimised, so cannot react to a live queue or RTT spike \\
-PROTEUS (Bhatti et al., 2026) & Accuracy target $\tau$ via Lagrangian RL & No & No (accuracy floor, not a deadline) & No & State space excludes queue, latency and energy entirely \\
-Splitwise (Patel et al., 2024) & Phase-level cluster telemetry & Yes, cluster-level & No & No & Scheduling is cluster/phase granularity, not a per-request deadline \\
-LiteLLM (LiteLLM, 2026) & Weighted/\-latency/\-usage/\-least-busy rule, operator-selected & Reactive only (latency cache, cooldown) & No & No & Fixed rules over a rolling window, not a learned or self-reported signal \\
-Portkey (Portkey, 2026) & Static operator-set traffic weights & No & No & No & Weights are configured up front, not adapted from live telemetry or outcomes \\
-\textbf{This work} & 13-slot masked state: confidence, cloud queue, RTT, SLA remaining, edge resource stress, calibration delta, error rate, operational state & Yes, 5 live signals + edge self-report & Partial --- per-request signal, learned soft preference via reward, not a hard gate & Yes, bidirectional loop & Still over-escalates in scenarios where RTT alone already guarantees an SLA violation (Section 7.6) \\
-\bottomrule
-\end{longtable}
-}
+\caption{Comparison of cascade, offloading and gateway systems surveyed
+in this chapter against this project's system.}\label{tab:comparison}\\
+\toprule System & Primary routing signal & Infra-aware & Per-req.\ SLA &
+Closed loop & Key limitation \\ \midrule \endhead BranchyNet
+(Teerapittayanon et al., 2016) & Softmax entropy at each exit & No & No
+& No & Exit decision is a function of the input alone, blind to what is
+downstream \\ MSDNet (Huang et al., 2018) & Fixed computational budget &
+No & No & No & Budget is a design-time constant, not a live measurement
+\\ EdgeBERT (Tambe et al., 2021) & Entropy-driven on-chip DVFS & Own
+chip only & No & No & No interface to external signals (cloud queue,
+network) \\ SPINN (Laskaridis et al., 2020) & Entropy plus network
+connectivity & Point measurement & No & No & Connectivity is a
+split-time reading, not a live queue or deadline \\ RouteLLM (Ong et
+al., 2024) & Prompt content, preference-learned & No & No & No & Cannot
+distinguish a saturated cloud endpoint from a spare one \\ GreenServ
+(Ziller et al., 2026) & Query features + model-pool accuracy/energy
+history & No & No & Yes (online bandit) & Still no cloud queue, RTT, SLA
+or edge-health channel \\ NSGA-II router (Yu et al., 2025) & Offline
+Pareto front over quality/latency/cost & Yes, offline & No & No & Fixed
+once optimised, so cannot react to a live queue or RTT spike \\ PROTEUS
+(Bhatti et al., 2026) & Accuracy target $\tau$ via Lagrangian RL & No &
+No (accuracy floor, not a deadline) & No & State space excludes queue,
+latency and energy entirely \\ Splitwise (Patel et al., 2024) &
+Phase-level cluster telemetry & Yes, cluster-level & No & No &
+Scheduling is cluster/phase granularity, not a per-request deadline \\
+LiteLLM (LiteLLM, 2026) & Weighted/\-latency/\-usage/\-least-busy rule,
+operator-selected & Reactive only (latency cache, cooldown) & No & No &
+Fixed rules over a rolling window, not a learned or self-reported signal
+\\ Portkey (Portkey, 2026) & Static operator-set traffic weights & No &
+No & No & Weights are configured up front, not adapted from live
+telemetry or outcomes \\ \textbf{This work} & 13-slot masked state:
+confidence, cloud queue, RTT, SLA remaining, edge resource stress,
+calibration delta, error rate, operational state & Yes, 5 live signals +
+edge self-report & Partial. Per-request signal, learned soft preference
+via reward, not a hard gate & Yes, bidirectional loop & Still
+over-escalates in scenarios where RTT alone already guarantees an SLA
+violation (Section 7.6) \\ \bottomrule \end{longtable} }
 
-Three gaps recur across every system in Table~\ref{tab:comparison},
-and each maps directly onto a specific component of the design in
-Section 5, rather than being a claim added after the literature was
-read. First, none of the confidence- or budget-only cascades
-(BranchyNet, MSDNet, EdgeBERT, SPINN) nor any learned or production
-router (RouteLLM, GreenServ, LiteLLM, Portkey) reads live infrastructure
-state at all: the Edge Context
-Protocol and the Bronze/Silver/Gold Medallion pipeline exist
-specifically to give the routing decision cloud queue depth, RTT, SLA
-remaining and edge resource stress alongside confidence, rather than
+Three gaps recur across every system in Table~\ref{tab:comparison}, and
+each maps directly onto a specific component of the design in Section 5,
+rather than being a claim added after the literature was read. First,
+none of the confidence- or budget-only cascades (BranchyNet, MSDNet,
+EdgeBERT, SPINN) nor any learned or production router (RouteLLM,
+GreenServ, LiteLLM, Portkey) reads live infrastructure state at all: the
+Edge Context Protocol and the Bronze/Silver/Gold Medallion pipeline
+exist specifically to give the routing decision cloud queue depth, RTT,
+SLA remaining and edge resource stress alongside confidence, rather than
 confidence alone. Second, the offline-optimised NSGA-II router and the
 accuracy-floor PROTEUS both freeze a policy that, once trained, cannot
 see the request-time queue or RTT. The PPO agent in this project is also
 trained offline, but its state and reward both carry the current
 request's own SLA remaining and predicted RTT, at request-time
 granularity. None of the eleven systems above matches this. Splitwise
-leaves it at cluster granularity instead. This is a learned
-preference the policy weighs against everything else, not a
-deterministic per-request gate --- Section 5 discloses this distinction
-directly, including a Silver-layer signal computed for exactly a harder
-guarantee but not yet wired into any decision path, so the honest claim
-here is request-time granularity, not a guarantee no surveyed system
-offers. Third,
-none of the eleven systems closes the loop back to the requester: EdgeBERT
-adapts within a request and GreenServ adapts its bandit online, LiteLLM
-adapts its latency cache and cooldown window, but none of them feeds the
-outcome of one routing decision back into the state
-the next decision is made from at the level of an individual device.
-The Bidirectional Loop (Section 5) is designed against exactly that
-gap, and its removal is measured directly, not only asserted, in
-Ablation Run 4 (Section 7.3).
+leaves it at cluster granularity instead. This is a learned preference
+the policy weighs against everything else, not a deterministic
+per-request gate. Section 5 discloses this distinction directly,
+including a Silver-layer signal computed for a harder guarantee
+but not yet wired into any decision path, so the honest claim here is
+request-time granularity, not a guarantee no surveyed system offers.
+Third, none of the eleven systems closes the loop back to the requester:
+EdgeBERT adapts within a request and GreenServ adapts its bandit online,
+LiteLLM adapts its latency cache and cooldown window, but none of them
+feeds the outcome of one routing decision back into the state the next
+decision is made from at the level of an individual device. The
+Bidirectional Loop (Section 5) is designed against that gap, and
+its removal is measured directly, not only asserted, in Ablation Run 4
+(Section 7.3).
 

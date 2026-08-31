@@ -11,8 +11,8 @@ fifteen-week timeline rather than a team with a dedicated QA phase.
 \hypertarget{self-check-convention}{%
 \subsection{The self-check convention}\label{self-check-convention}}
 
-Every module in \textbf{devmind/} that contains non-trivial logic --- a
-branch, a loop, a numeric threshold, a state machine --- carries its own
+Every module in \textbf{devmind/} that contains non-trivial logic (a
+branch, a loop, a numeric threshold, a state machine) carries its own
 \textbf{demo()} function, runnable directly (\textbf{python -m
 devmind.\textless module\textgreater}) and asserting the behaviours that
 would break silently if the logic regressed: for example,
@@ -32,12 +32,12 @@ message that states \emph{why} the invariant matters, not only that it
 failed. Every module touched during this project's later sprints
 (\textbf{edge.py}, \textbf{dataset.py}, \textbf{cascade.py},
 \textbf{agent.py}, \textbf{orchestrator.py}, \textbf{diagnosis.py},
-\textbf{orchestrator\_trainer.py}, \textbf{gateway/orchestrator\_app.py})
-carries one, and none makes a real network call. External dependencies
-(HuggingFace Hub, Ollama) are stood in for with small fake objects
-matching the real interface --- for example,
-\textbf{orchestrator\_trainer.py}'s \textbf{\_FakeModel} matches
-\textbf{DistilBERTEdge}/\textbf{BERTLargeCloud}'s
+\textbf{orchestrator\_trainer.py},
+\textbf{gateway/orchestrator\_app.py}) carries one, and none makes a
+real network call. External dependencies (HuggingFace Hub, Ollama) are
+stood in for with small fake objects matching the real interface. For
+example, \textbf{orchestrator\_trainer.py}'s \textbf{\_FakeModel}
+matches \textbf{DistilBERTEdge}/\textbf{BERTLargeCloud}'s
 \textbf{.predict(text, true\_label)} signature without invoking a real
 model. The whole suite therefore runs in well under a minute, and can be
 re-run after any change without a live model or network dependency.
@@ -70,9 +70,9 @@ dashboard) deployed to real GCE VMs across three regions via
 surfaced a genuine gap absent from any unit-level test: the cloud
 dispatch path in \textbf{cascade.py} had no \textbf{try/except} around
 the network call, unlike the edge path, which does. This has since been
-fixed --- \textbf{\_dispatch()} now retries the cloud call once inside a
+fixed. \textbf{\_dispatch()} now retries the cloud call once inside a
 \textbf{try/except} before falling back to the already-computed edge
-result (Section 5, Cascade Controller), which is exactly the class of
+result (Section 5, Cascade Controller), which is the class of
 gap a live multi-region test can surface that a self-check, running
 against local fakes, cannot.
 \item \textbf{LLM diagnosis capability}, tested end-to-end against a
@@ -102,7 +102,7 @@ path), using the current post-reward-gradient-fix policy rather than the
 policy in place for the 2026-08-05 Docker test. 13,729 requests, zero
 errors, zero pod restarts across the full session. This run also
 exercised Prometheus and Grafana as real Kubernetes workloads, scraping
-\textbf{prometheus\_client} metrics across all three regions --- and
+\textbf{prometheus\_client} metrics across all three regions, and
 surfaced two further gaps a self-check running against local fakes
 cannot: \textbf{prometheus\_client}'s default \textbf{Histogram} buckets
 are calibrated for second-scale durations, silently degrading
@@ -110,7 +110,7 @@ millisecond-scale latency quantiles until explicit buckets were set, and
 the orchestrator's live-monitoring view, which tails a local log file,
 needed an explicit HTTP-forwarding path (\textbf{CascadeController}'s
 \textbf{action\_log\_url}) once the gateway and orchestrator are
-genuinely separate pods rather than processes sharing one host. Both
+separate pods rather than processes sharing one host. Both
 fixed and re-verified against live cross-region traffic.
 \end{itemize}
 
@@ -119,12 +119,12 @@ fixed and re-verified against live cross-region traffic.
 
 The single-node EC2+Minikube deployment path
 (\textbf{deploy/ec2-minikube-setup.sh}) is checked into the repository
-and plausible on inspection but has no corresponding live-test report ---
-the 3-region GKE deployment above is the Kubernetes path with live-test
+and plausible on inspection but has no corresponding live-test report.
+The 3-region GKE deployment above is the Kubernetes path with live-test
 evidence, using genuine multi-cluster Kubernetes rather than a single
-local cluster. The learned orchestrator meta-policy (Section 5) was tested
-in the sense that its integration code, safety fallback, and training
-loop all pass self-checks and were run against real training data. It
-was not tested in the sense of ever producing a trusted live decision,
-because it never converged, which is reported as a failure rather than
-a gap in test coverage.
+local cluster. The learned orchestrator meta-policy (Section 5) was
+tested in the sense that its integration code, safety fallback, and
+training loop all pass self-checks and were run against real training
+data. It was not tested in the sense of ever producing a trusted live
+decision, because it never converged, which is reported as a failure
+rather than a gap in test coverage.
