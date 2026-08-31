@@ -18,10 +18,10 @@ devmind.\textless module\textgreater}) and asserting the behaviours that
 would break silently if the logic regressed: for example,
 \textbf{edge.py}'s self-check verifies that
 \textbf{compute\_calibration\_delta()} returns a signed correction
-rather than an unsigned gap; \textbf{agent.py}'s verifies that
+rather than an unsigned gap. \textbf{agent.py}'s verifies that
 \textbf{is\_ood()} requires two anomalous slots and not one, and that a
 stale \textbf{last\_fallback\_reason} is cleared on the next
-non-fallback decision; \textbf{orchestrator.py}'s verifies, among other
+non-fallback decision. \textbf{orchestrator.py}'s verifies, among other
 things, that a client with an explicit threshold override is not moved
 by \textbf{recalibrate\_thresholds()}, and that the LLM governance
 review can escalate a decision but never downgrade one. Deliberately,
@@ -33,13 +33,13 @@ failed. Every module touched during this project's later sprints
 (\textbf{edge.py}, \textbf{dataset.py}, \textbf{cascade.py},
 \textbf{agent.py}, \textbf{orchestrator.py}, \textbf{diagnosis.py},
 \textbf{orchestrator\_trainer.py}, \textbf{gateway/orchestrator\_app.py})
-carries one, and none makes a real network call --- external
-dependencies (HuggingFace Hub, Ollama) are stood in for with small fake
-objects matching the real interface (see, for example,
-\textbf{orchestrator\_trainer.py}'s \textbf{\_FakeModel}, which matches
+carries one, and none makes a real network call. External dependencies
+(HuggingFace Hub, Ollama) are stood in for with small fake objects
+matching the real interface --- for example,
+\textbf{orchestrator\_trainer.py}'s \textbf{\_FakeModel} matches
 \textbf{DistilBERTEdge}/\textbf{BERTLargeCloud}'s
 \textbf{.predict(text, true\_label)} signature without invoking a real
-model), so the whole suite runs in well under a minute and can be
+model. The whole suite therefore runs in well under a minute, and can be
 re-run after any change without a live model or network dependency.
 
 Two bugs were found and fixed directly through this discipline rather
@@ -80,7 +80,7 @@ real local Ollama instance (\textbf{gemma4:12b-it-qat}) rather than only
 the scripted stub used in self-checks: a synthetic
 \textbf{client\_babcock} distress scenario produced a coherent,
 correctly-parsed diagnosis in roughly 2.5 seconds once the model was
-warm; a first, cold-Ollama attempt timed out at the then-configured 15
+warm. A first, cold-Ollama attempt timed out at the then-configured 15
 seconds, which is why the provider's default timeout was raised to 20
 seconds.
 \item \textbf{Websocket dashboard}, tested with a real \textbf{uvicorn}
@@ -106,7 +106,7 @@ exercised Prometheus and Grafana as real Kubernetes workloads, scraping
 surfaced two further gaps a self-check running against local fakes
 cannot: \textbf{prometheus\_client}'s default \textbf{Histogram} buckets
 are calibrated for second-scale durations, silently degrading
-millisecond-scale latency quantiles until explicit buckets were set; and
+millisecond-scale latency quantiles until explicit buckets were set, and
 the orchestrator's live-monitoring view, which tails a local log file,
 needed an explicit HTTP-forwarding path (\textbf{CascadeController}'s
 \textbf{action\_log\_url}) once the gateway and orchestrator are
@@ -124,7 +124,7 @@ the 3-region GKE deployment above is the Kubernetes path with live-test
 evidence, using genuine multi-cluster Kubernetes rather than a single
 local cluster. The learned orchestrator meta-policy (Section 5) was tested
 in the sense that its integration code, safety fallback, and training
-loop all pass self-checks and were run against real training data; it
+loop all pass self-checks and were run against real training data. It
 was not tested in the sense of ever producing a trusted live decision,
 because it never converged, which is reported as a failure rather than
 a gap in test coverage.

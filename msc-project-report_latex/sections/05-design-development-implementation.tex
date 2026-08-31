@@ -5,12 +5,12 @@ Implementation}\label{design-development-and-implementation}}
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=\textwidth]{media/architecture-diagram.pdf}
-\caption{System architecture: the seven components and the request path between them. Solid arrows are the forward (per-request) loop; dashed red is the backward loop, updating edge state only; dashed grey is the governance-time-only Policy Orchestration Layer.}
+\caption{System architecture: the seven components and the request path between them. Solid arrows are the forward (per-request) loop, dashed red the backward loop updating edge state only, and dashed grey the governance-time-only Policy Orchestration Layer.}
 \label{fig:architecture}
 \end{figure}
 
 Figure~\ref{fig:architecture} gives the seven components and how a
-single request moves through them; the subsections below describe each
+single request moves through them. The subsections below describe each
 component in turn.
 
 \hypertarget{edge-context-protocol}{%
@@ -29,7 +29,7 @@ scalar cannot separate a slow-but-correct edge from a
 fast-but-wrong one. EdgeBERT (Tambe et al., 2021) is the only system in
 Section 3 that reads any on-device resource state at all, and even it is
 restricted to its own chip's entropy/voltage-frequency envelope with no
-per-resource breakdown; BranchyNet, MSDNet, RouteLLM, GreenServ, and
+per-resource breakdown. BranchyNet, MSDNet, RouteLLM, GreenServ, and
 both production gateways read no device resource state whatsoever. The
 five-field design is a direct response to that gap, not an arbitrary
 choice of granularity.
@@ -50,13 +50,13 @@ lets the offline simulator inject synthetic values over the same code
 path that \textbf{emit\_report()} consumes, thereby making the handling
 of simulated and real stress completely uniform.
 
-\textbf{EdgeDevice.emit\_report()} is the core of the protocol: besides
-an inference\textquotesingle s raw confidence, it
-figures out the calibrated confidence by calling
-\textbf{compute\_calibration\_delta()} temperature scaling (Guo et al.,
-2017), and here the temperature term is a function of the sensed stress
-(`temp = 1.0 + 0.5*cpu + 0.3*thermal`) so that higher stress just leads
-calibrated confidence closer to 0.5. This directly targets the failure
+\textbf{EdgeDevice.emit\_report()} is the core of the protocol. Besides
+an inference\textquotesingle s raw confidence, it computes a calibrated
+confidence by calling \textbf{compute\_calibration\_delta()}, which
+applies temperature scaling (Guo et al., 2017). The temperature term is
+itself a function of the sensed stress (`temp = 1.0 + 0.5*cpu +
+0.3*thermal`), so higher stress pulls the calibrated confidence closer
+to 0.5. This directly targets the failure
 mode Guo et al. document and the introduction's problem statement opens
 with: a model's raw softmax confidence stays high while the prediction
 underneath degrades under load. BranchyNet and MSDNet both read raw
@@ -104,7 +104,7 @@ request traffic.
 
 None of the eleven systems in Section 3 --- academic or commercial --- has
 a counterpart to this. Confidence- and budget-only cascades have no
-concept of edge liveness at all; LiteLLM's cooldown and Portkey's
+concept of edge liveness at all. LiteLLM's cooldown and Portkey's
 failover both react to a request that has already failed, not to a
 device that has gone silent without failing anything yet. The distinction
 matters operationally: a deadman's switch turns "no data" into an
@@ -255,7 +255,7 @@ the extended skills are registered. \textbf{SilverEnricher.enrich()}
 which computes \textbf{calibration\_delta} / \textbf{error\_rate} from
 real \textbf{operational\_state} of the edge is executed before
 \textbf{decide()} ever runs. The input to the policy in the form of the
-Gold vector is the same in both calls; a second forward pass on the same
+Gold vector is the same in both calls. A second forward pass on the same
 input brings not any additional information but only random sampling
 noise from the policy head. The \textbf{decide()} function resolves the
 \textbf{QUERY\_EXTENDED\_CONTEXT} simply by asking \textbf{act()} to
@@ -313,7 +313,7 @@ term in \textbf{\_compute\_reward()} (\textbf{environment.py}) was
 latency exceeds the budget --- so the reward was identical whether an
 action's latency was 1ms or 1000ms over budget, giving the policy no
 gradient to prefer the less-bad option once the SLA was already lost.
-Removing the floor (\textbf{1.0 - latency/sla\_budget}, left unclamped;
+Removing the floor (\textbf{1.0 - latency/sla\_budget}, left unclamped, though
 the outer \textbf{np.clip(reward, -1, 1)} in \textbf{step()} still
 bounds the total) and retraining for a further 100,000 steps reduced
 degraded-network escalation from 81.5\% to 21.5\%, energy from 365.0 to
@@ -323,7 +323,7 @@ than the narrow case it targeted: escalation rate fell from roughly
 one, with SLA violations under bursty traffic falling from 65.5\% to
 0.0\% and energy consumption dropping 50--80\% across the board, at a
 small, consistent accuracy cost of 0.5--2 percentage points per
-scenario. This is the model reported in the Evaluation and Discussion section; full before/after
+scenario. This is the model reported in the Evaluation and Discussion section. Full before/after
 figures per scenario are given there. The degraded-network
 over-escalation is reduced, not eliminated --- the policy still
 escalates a fifth of the time in a scenario where escalating provably
@@ -475,24 +475,21 @@ gateway process. The results of such adjustments are logged in exactly the same
 matter.
 
 \textbf{DriftEventListener.should\_escalate()} considers the combination
-of two signals instead of just one. If a client continuously sends
-messages that indicate problems (for example, it is \textbf{DEGRADING}
-or \textbf{UNREACHABLE}) but at the same time it is not being trustable,
-then \textbf{onboard()} will be triggered only after the client has been
-experiencing problems for a number of \textbf{recovery\_window\_s}
-unless in the meantime it is detected that there also has been a spike
-of errors - this error-rate spike leads to immediate escalation,
-provided the client-specific cooldown has elapsed, i.e. a real spike
-will not be held for the whole sustained-distress time frame and
-will not keep being triggered on each and every single
-request during an outage as well. \textbf{DriftEventListener} was found,
+of two signals instead of just one. A client in sustained distress ---
+reporting \textbf{DEGRADING} or \textbf{UNREACHABLE} while its trust
+score stays low --- triggers \textbf{onboard()} only after that state
+has persisted for \textbf{recovery\_window\_s}. A spike in error rate
+overrides this and escalates immediately, provided the client-specific
+cooldown has elapsed. Together the two rules mean a genuine spike is not
+held back for the full sustained-distress window, and does not
+re-trigger on every request during an outage. \textbf{DriftEventListener} was found,
 while extending the governance layer described below, to be unwired in
 the live gateway: \textbf{gateway/app.py} never constructs one or passes
 it to \textbf{CascadeController} (which accepts an optional
 \textbf{drift\_listener} that stays \textbf{None} in production today).
 Its shape --- a non-blocking \textbf{put\_nowait()} onto an
 \textbf{asyncio.Queue}, consumed by an async \textbf{run\_forever()} ---
-is correct and only exercised by its own self-check; treated here as
+is correct and only exercised by its own self-check. It is treated here as
 built-but-not-yet-live infrastructure rather than an active production
 path.
 
@@ -525,7 +522,7 @@ and neither diagnosis output feeds back into
 per-request PPO's determinism claim is untouched.
 
 \textbf{EscalationDiagnosisMonitor} watches per-client action-log rows
-(the same queue-plus-cooldown shape as \textbf{DriftEventListener}); when
+(the same queue-plus-cooldown shape as \textbf{DriftEventListener}). When
 a client's escalation rate stays $\geq$95\% over a 50-request rolling
 window, it asks the LLM to explain \emph{why} and \emph{what resource is
 needed}, and the dashboard broadcasts the result over a websocket
@@ -552,7 +549,7 @@ decision per episode, framed as an episode-length-one MDP so that
 \textbf{PPOTrainer}/\textbf{PPONetwork} could be reused completely
 unmodified, with a reward always computed from a genuine evaluation of
 whichever action was actually taken (REUSE evaluates the real seed
-policy; FINE\_TUNE/TRAIN\_NEW really invoke a short training run and
+policy, while FINE\_TUNE/TRAIN\_NEW really invoke a short training run and
 then evaluate the result) --- never a fabricated number, only a
 reduced training budget during meta-training to keep rollout collection
 tractable. \textbf{PolicyOrchestrator.\_meta\_decide()} wired this in
@@ -590,20 +587,22 @@ hallucinated review can waste compute at worst, and can never silently
 authorise an under-provisioned policy. It is skipped entirely once the
 decision is already TRAIN\_NEW, since there is nothing more cautious to
 escalate to, and is a no-op when no diagnosis provider is configured.
-Live-tested against a real Ollama instance with a real client's numbers
-(a seed policy measuring \textbf{sla\_violation\_rate=1.00} against a
-\textbf{0.15} requirement, where the deterministic rule had chosen
-\textbf{fine\_tune}): the review correctly escalated the decision to
-\textbf{train\_new}, with the justification ``the seed policy's
-sla\_violation\_rate of 1.00 significantly exceeds the maximum allowed
-threshold of 0.15'', in roughly 2.5 seconds once the local model was
-warm (a first, cold-Ollama attempt timed out at 40 seconds across both
-retry attempts --- an operational quirk of the LLM being idle-unloaded,
-not a code defect). A four-client onboarding run with governance review
-enabled correctly confirmed three clients' REUSE decisions without
-wasting compute and escalated the one client whose seed policy
-genuinely missed its SLA requirement by a wide margin, discussed
-further as Ablation Run 7 in the Evaluation and Discussion section.
+The review was live-tested against a real Ollama instance with a real
+client's numbers: a seed policy measuring
+\textbf{sla\_violation\_rate=1.00} against a \textbf{0.15} requirement,
+where the deterministic rule had chosen \textbf{fine\_tune}. The review
+correctly escalated the decision to \textbf{train\_new}, justifying it
+as ``the seed policy's sla\_violation\_rate of 1.00 significantly
+exceeds the maximum allowed threshold of 0.15''. This took roughly 2.5
+seconds once the local model was warm. A first, cold-Ollama attempt
+timed out at 40 seconds across both retry attempts --- an operational
+quirk of the LLM being idle-unloaded, not a code defect.
+
+A four-client onboarding run with governance review enabled confirmed
+three clients' REUSE decisions without wasting compute, and escalated
+the one client whose seed policy genuinely missed its SLA requirement by
+a wide margin. This is discussed further as Ablation Run 7 in the
+Evaluation and Discussion section.
 
 \hypertarget{deployment}{%
 \subsection{Deployment}\label{deployment}}

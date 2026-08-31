@@ -64,7 +64,7 @@ consequences of those actions?
   state is up to 13 variables (which can vary via the dynamic Medallion
   pipeline including per resource stress, etc.), the actions are \{
   route to edge, escalate to cloud, fetch extended context \}, and the
-  reward function is designed to balance accuracy latency SLA
+  reward function is designed to balance accuracy, latency, SLA
   compliance, and energy.
   \end{quote}
 \item
@@ -84,7 +84,7 @@ consequences of those actions?
   Thereafter the policy is frozen and deployed as its own service
   reachable over HTTP, live-tested twice: as a plain-Docker multi-region
   GCP deployment, and as a genuine 3-region Kubernetes (GKE) deployment
-  with the current policy (Section 5); neither
+  with the current policy (Section 5). Neither
   path is a literal sidecar (one PPO process co-located inside another
   container) --- see Section 5's Deployment subsection for the honest
   distinction.
@@ -98,7 +98,7 @@ consequences of those actions?
   \begin{quote}
   Performance test against 5 baseline approaches and evaluate on three
   different traffic conditions. In addition, conduct a multi-run
-  ablation study (all seven runs of the plan executed; Section 7.1).
+  ablation study (all seven runs of the plan executed, Section 7.1).
   \end{quote}
 \end{enumerate}
 
@@ -131,7 +131,7 @@ consequences of those actions?
   scheduling) and every cascade baseline studied. This is a soft,
   learned preference (the reward function penalises an SLA violation
   directly) rather than a hard per-request gate that blocks a doomed
-  escalation before it happens; Section 5 states this distinction
+  escalation before it happens. Section 5 states this distinction
   plainly, including a Silver-layer signal computed for exactly that
   harder guarantee but not yet wired into any decision path.
   \end{quote}

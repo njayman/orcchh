@@ -22,7 +22,7 @@ computational budget differently on easy and hardest parts of inputs
 within one model, So getting rid of the necessity of having separated
 networks per computation budget which had been the case before. Although
 the budget itself is a design-time only constant, not a measurement
-capturing the current infrastructure state; it lacks seeing the growth
+capturing the current infrastructure state. It cannot see the growth
 of the cloud queue or the RTT spike just one second ago.
 
 EdgeBERT (Tambe et al., 2021) is, by far, the most similar previously
@@ -43,13 +43,13 @@ remainder on a cloud partner, with the exit-versus-offload decision
 conditioned on both softmax entropy and a measured network connectivity
 signal rather than entropy alone. This is the closest any surveyed
 system comes to combining an on-device signal with a network-side one,
-and it deserves the same critical treatment as its neighbours: the
+and it deserves the same critical treatment as its neighbours. The
 connectivity signal SPINN reads is a point measurement of link quality
 taken at split time, not a live cloud queue depth or a per-request SLA
-deadline, so it still cannot tell a saturated cloud endpoint from a
-lightly-loaded one, and, like BranchyNet and MSDNet, its split point is
-fixed once the network is partitioned rather than adapted from an
-outcome fed back after the request completes.
+deadline. It therefore still cannot tell a saturated cloud endpoint from
+a lightly-loaded one. Its split point is also fixed once the network is
+partitioned, rather than adapted from an outcome fed back after the
+request completes --- the same limitation BranchyNet and MSDNet share.
 
 \hypertarget{learned-single-signal-routers}{%
 \subsection{Learned, single-signal
@@ -115,7 +115,7 @@ bottleneck) phase separation and runs each phase on separate machines
 that specialize in that phase. Splitwise explains the differences in the
 phase capabilities (throughput power etc.) so well because it is a real
 case of heterogeneous hardware in servers. Scheduling is at the level of
-clusters and phases; but routing decisions are not accompanied by a
+clusters and phases, but routing decisions are not accompanied by a
 per-request SLA deadline check.
 
 \hypertarget{commercial-and-open-source-landscape}{%
@@ -137,15 +137,16 @@ in-flight calls), cost-based, and a pluggable custom-strategy interface.
 It also has a cooldown mechanism that temporarily stops routing to a
 deployment after a run of rate-limit or failure responses, and a
 latency cache that records recent response times per deployment. This
-is a genuinely reactive system --- it does respond to measured latency
-and failures --- but every one of its strategies is a fixed rule
-evaluated against a rolling window of recent responses; none of them is
-a learned policy, none reads a self-reported edge-device health or
-calibration state (LiteLLM routes between cloud model endpoints, not
-edge devices, so there is no analogous self-report to read), and none
-enforces a per-request deadline before dispatch --- a request is sent
-to whichever deployment the current rule favours, and if that deployment
-is slow, the outcome is observed only after the fact.
+is a genuinely reactive system: it does respond to measured latency and
+failures. Every one of its strategies is nonetheless a fixed rule
+evaluated against a rolling window of recent responses, so none of them
+is a learned policy. None reads a self-reported edge-device health or
+calibration state either, since LiteLLM routes between cloud model
+endpoints rather than edge devices, leaving no analogous self-report to
+read. Nor does any strategy enforce a per-request deadline before
+dispatch: a request goes to whichever deployment the current rule
+favours, and if that deployment is slow, the outcome is observed only
+after the fact.
 
 \textbf{Portkey}'s AI Gateway documents its load-balancing as static
 weighted distribution across configured providers or models --- traffic
@@ -154,7 +155,7 @@ optimisation or gradual migration testing), normalised to sum to 100\%,
 not according to a live queue, latency, or health signal measured at
 request time. Portkey's own documentation for this feature makes no
 mention of reinforcement learning, closed-loop adaptation from
-outcomes, or per-request SLA enforcement; those remain configuration
+outcomes, or per-request SLA enforcement. Those remain configuration
 choices made by the operator up front, not decisions the gateway itself
 learns or adapts.
 
@@ -193,7 +194,7 @@ awareness), whether a per-request deadline is checked before dispatch
 (not just an aggregate SLA target), and whether the outcome of a routing
 decision changes the state the next decision is made from (a closed
 loop). No system reviewed combines all three with a per-request SLA
-check; the closest, Splitwise and the NSGA-II router, are each strong on
+check. The closest, Splitwise and the NSGA-II router, are each strong on
 exactly one axis and silent on the other two.
 
 {\small\setlength{\tabcolsep}{4pt}
@@ -209,7 +210,7 @@ EdgeBERT (Tambe et al., 2021) & Entropy-driven on-chip DVFS & Own chip only & No
 SPINN (Laskaridis et al., 2020) & Entropy plus network connectivity & Point measurement & No & No & Connectivity is a split-time reading, not a live queue or deadline \\
 RouteLLM (Ong et al., 2024) & Prompt content, preference-learned & No & No & No & Cannot distinguish a saturated cloud endpoint from a spare one \\
 GreenServ (Ziller et al., 2026) & Query features + model-pool accuracy/energy history & No & No & Yes (online bandit) & Still no cloud queue, RTT, SLA or edge-health channel \\
-NSGA-II router (Yu et al., 2025) & Offline Pareto front over quality/latency/cost & Yes, offline & No & No & Fixed once optimised; cannot react to a live queue or RTT spike \\
+NSGA-II router (Yu et al., 2025) & Offline Pareto front over quality/latency/cost & Yes, offline & No & No & Fixed once optimised, so cannot react to a live queue or RTT spike \\
 PROTEUS (Bhatti et al., 2026) & Accuracy target $\tau$ via Lagrangian RL & No & No (accuracy floor, not a deadline) & No & State space excludes queue, latency and energy entirely \\
 Splitwise (Patel et al., 2024) & Phase-level cluster telemetry & Yes, cluster-level & No & No & Scheduling is cluster/phase granularity, not a per-request deadline \\
 LiteLLM (LiteLLM, 2026) & Weighted/\-latency/\-usage/\-least-busy rule, operator-selected & Reactive only (latency cache, cooldown) & No & No & Fixed rules over a rolling window, not a learned or self-reported signal \\
@@ -231,10 +232,10 @@ specifically to give the routing decision cloud queue depth, RTT, SLA
 remaining and edge resource stress alongside confidence, rather than
 confidence alone. Second, the offline-optimised NSGA-II router and the
 accuracy-floor PROTEUS both freeze a policy that, once trained, cannot
-see the request-time queue or RTT; the PPO agent in this project is also
+see the request-time queue or RTT. The PPO agent in this project is also
 trained offline, but its state and reward both carry the current
 request's own SLA remaining and predicted RTT, at request-time
-granularity. None of the eleven systems above matches this; Splitwise
+granularity. None of the eleven systems above matches this. Splitwise
 leaves it at cluster granularity instead. This is a learned
 preference the policy weighs against everything else, not a
 deterministic per-request gate --- Section 5 discloses this distinction
