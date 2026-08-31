@@ -40,7 +40,7 @@ gcloud compute ssh "$CLOUD_NAME" --zone="$CLOUD_ZONE" --command="
   DOCKER_BUILDKIT=1 sudo -E docker build -q -f Dockerfile.orchestrator -t devmind-orchestrator .
   sudo docker rm -f devmind-cloud devmind-orchestrator 2>/dev/null || true
   sudo docker run -d --restart unless-stopped -p 8001:8001 --name devmind-cloud devmind-cloud
-  mkdir -p ~/devmind-state/policy_library ~/devmind-state/evaluation && sudo docker run -d --restart unless-stopped -p 8002:8002 -v ~/devmind-state/policy_library:/app/policy_library -v ~/devmind-state/evaluation:/app/docs/evaluation --name devmind-orchestrator devmind-orchestrator
+  mkdir -p ~/devmind-state/policy_library ~/devmind-state/evaluation && sudo docker run -d --restart unless-stopped -p 8002:8002 -v ~/devmind-state/policy_library:/app/policy_library -v ~/devmind-state/evaluation:/app/evaluation --name devmind-orchestrator devmind-orchestrator
 "
 
 echo "== Rebuilding + restarting containers on $NEAR_NAME =="

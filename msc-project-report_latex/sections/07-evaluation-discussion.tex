@@ -2,7 +2,7 @@
 \section{Evaluation and Discussion}\label{evaluation-and-discussion}}
 
 All results below are the final run
-(\textbf{docs/evaluation/2026-08-23\_21-08-21.json}), produced by the
+(\textbf{evaluation/2026-08-23\_21-08-21.json}), produced by the
 policy trained after both fixes described in Section 5 (100,000 steps,
 undertraining fix; a further 100,000 steps, reward-gradient fix), with
 one run per policy, \textbf{max\_samples=1000}, real HuggingFace CPU
@@ -234,7 +234,7 @@ Every table in this section is produced by \textbf{save\_results()}
 writing both a human-readable \textbf{.txt} summary and a machine-readable
 \textbf{.json} record (per-policy \textbf{accuracy}, \textbf{p95\_latency\_ms},
 \textbf{sla\_violation\_rate}, and the remaining \textbf{EvalMetrics}
-fields via \textbf{\_metrics\_to\_dict()}) to \textbf{docs/evaluation/},
+fields via \textbf{\_metrics\_to\_dict()}) to \textbf{evaluation/},
 timestamped at the moment the run completed. The headline numbers below
 come from one specific, named file
 (\textbf{2026-08-23\_21-08-21.json}, referenced at the top of this
@@ -301,7 +301,7 @@ is a reasonable, cheap choice.
 \subsubsection{Bursty traffic}\label{bursty-traffic}}
 
 Selected rows; the complete per-policy results for all three scenarios
-are in \textbf{docs/evaluation/2026-08-23\_21-08-21.txt}.
+are in \textbf{evaluation/2026-08-23\_21-08-21.txt}.
 
 \begin{longtable}{lrrrrr}
 \caption{Results under bursty traffic (4,000$\to$22,000 requests/minute).}\label{tab:bursty}\\
@@ -343,7 +343,7 @@ genuinely fitted learned router, not only strawmen.
 \subsubsection{Degraded network}\label{degraded-network}}
 
 Selected rows; the complete per-policy results for all three scenarios
-are in \textbf{docs/evaluation/2026-08-23\_21-08-21.txt}.
+are in \textbf{evaluation/2026-08-23\_21-08-21.txt}.
 
 \begin{longtable}{lrrrrr}
 \caption{Results under degraded-network conditions (RTT held at 800ms for the full episode).}\label{tab:degraded}\\
@@ -468,7 +468,7 @@ disagreed with (\textbf{agrees=false}), and escalated to
 sla\_violation\_rate of 1.00 significantly exceeds the maximum allowed
 threshold of 0.15''. Full decisions and justifications for all four
 clients are in
-\textbf{docs/evaluation/ablation-run-7-governance-review-2026-08-24.json}.
+\textbf{evaluation/ablation-run-7-governance-review-2026-08-24.json}.
 This is a governance-layer value the deterministic rule alone did not
 provide: the rule's ``closest candidate'' logic under-weighted
 \emph{how badly} the closest candidate missed, and the review caught
@@ -477,7 +477,7 @@ positive on the other three.
 
 The learned-meta-policy alternative to this review step was attempted
 first and failed to converge; it is reported honestly in Section 5 and
-in \textbf{docs/evaluation/option-b-meta-policy-failure-2026-08-24.md}
+in \textbf{evaluation/option-b-meta-policy-failure-2026-08-24.md}
 rather than omitted, because the failure is itself informative: the
 entropy/OOD safety fallback correctly refused to trust an undertrained
 model on every real client rather than silently making a bad governance

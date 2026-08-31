@@ -29,7 +29,7 @@ _PRESETS = {
     "degraded_network": ScenarioConfig.degraded_network,
 }
 
-_ACTION_LOG_PATH = os.environ.get("DEVMIND_ACTION_LOG_PATH", "docs/evaluation/request_log.jsonl")
+_ACTION_LOG_PATH = os.environ.get("DEVMIND_ACTION_LOG_PATH", "evaluation/request_log.jsonl")
 _TAIL_POLL_INTERVAL_S = 1.5
 
 
@@ -220,7 +220,7 @@ async def lifespan(app: FastAPI):
     diagnosis_provider = OllamaDiagnosisProvider()
     orch = PolicyOrchestrator(
         library_dir=os.environ.get("DEVMIND_POLICY_LIBRARY_DIR", "policy_library"),
-        log_path=os.environ.get("DEVMIND_DECISION_LOG", "docs/evaluation/orchestrator_decisions.jsonl"),
+        log_path=os.environ.get("DEVMIND_DECISION_LOG", "evaluation/orchestrator_decisions.jsonl"),
         fine_tune_steps=int(os.environ.get("DEVMIND_FINE_TUNE_STEPS", "2000")),
         train_new_steps=int(os.environ.get("DEVMIND_TRAIN_NEW_STEPS", "8000")),
         eval_n_runs=1,

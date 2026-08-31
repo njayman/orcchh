@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Replay the same 6-block/60-min live traffic schedule as gcp-traffic-test.sh
-# (see docs/evaluation/multi-region-live-traffic-test-2026-08-05.md) against
+# (see evaluation/multi-region-live-traffic-test-2026-08-05.md) against
 # the GKE stack from gke-up.sh/gke-update.sh. Unlike the Docker path, the
 # gateway pods are reachable directly over their LoadBalancer external IPs,
 # so this runs locally (no SSH-and-remote-curl needed) and logs straight to

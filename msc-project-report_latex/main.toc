@@ -49,14 +49,14 @@
 \contentsline {subsection}{\numberline {7.2}Baselines and scenarios}{23}{subsection.7.2}%
 \contentsline {subsubsection}{\numberline {7.2.1}Steady traffic}{23}{subsubsection.7.2.1}%
 \contentsline {subsubsection}{\numberline {7.2.2}Bursty traffic}{23}{subsubsection.7.2.2}%
-\contentsline {subsubsection}{\numberline {7.2.3}Degraded network}{24}{subsubsection.7.2.3}%
+\contentsline {subsubsection}{\numberline {7.2.3}Degraded network}{23}{subsubsection.7.2.3}%
 \contentsline {subsubsection}{\numberline {7.2.4}Held-out scenario (Ablation Run 6)}{24}{subsubsection.7.2.4}%
 \contentsline {subsection}{\numberline {7.3}Seven-run ablation}{24}{subsection.7.3}%
 \contentsline {subsection}{\numberline {7.4}Ablation Run 7: governance-layer value}{25}{subsection.7.4}%
 \contentsline {subsection}{\numberline {7.5}Two diagnosed and fixed evaluation issues}{26}{subsection.7.5}%
 \contentsline {subsection}{\numberline {7.6}Limitations}{26}{subsection.7.6}%
-\contentsline {section}{\numberline {8}Conclusion}{27}{section.8}%
-\contentsline {subsection}{\numberline {8.1}Summary of work}{27}{subsection.8.1}%
+\contentsline {section}{\numberline {8}Conclusion}{26}{section.8}%
+\contentsline {subsection}{\numberline {8.1}Summary of work}{26}{subsection.8.1}%
 \contentsline {subsection}{\numberline {8.2}Revisiting the objectives}{27}{subsection.8.2}%
 \contentsline {subsection}{\numberline {8.3}Limitations and future work}{27}{subsection.8.3}%
 \contentsline {subsection}{\numberline {8.4}Closing remarks}{28}{subsection.8.4}%

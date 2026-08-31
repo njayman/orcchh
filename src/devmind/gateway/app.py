@@ -99,7 +99,7 @@ async def lifespan(app: FastAPI):
     )
     agent = AgenticOrchestrator(_load_policy(), state_stats_path=stats_path)
     client_id = os.environ.get("DEVMIND_CLIENT_ID", "default")
-    action_log_path = os.environ.get("DEVMIND_ACTION_LOG_PATH", "docs/evaluation/request_log.jsonl")
+    action_log_path = os.environ.get("DEVMIND_ACTION_LOG_PATH", "evaluation/request_log.jsonl")
     orchestrator_url = os.environ.get("DEVMIND_ORCHESTRATOR_URL")
     action_log_url = f"{orchestrator_url}/log-action" if orchestrator_url else None
     controller = CascadeController(
