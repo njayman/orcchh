@@ -73,7 +73,12 @@ class SilverEnricher:
         self._queue_ewma = EWMA(alpha=0.3)
         self._rtt_ewma = EWMA(alpha=0.2)
 
-    def enrich(self, bronze: BronzeMetricSnapshot) -> SilverFeatureVector:
+    def enrich(self, bronze: BronzeMetricSnapshot, mode: str = "conditional") -> SilverFeatureVector:
+        # mode: "conditional" (default, operational_state-gated reveal, unchanged
+        # behavior) | "static" (always reveal calibration_delta/error_rate) |
+        # "masked_off" (never reveal them). Used by Ablation Run 5 to isolate the
+        # dynamic Medallion pipeline's contribution; production callers all use
+        # the default and are unaffected.
         ctx = bronze.edge_context
         is_degrading = ctx.operational_state == OperationalState.DEGRADING
         is_stressed = ctx.operational_state == OperationalState.STRESSED
@@ -101,10 +106,16 @@ class SilverEnricher:
             stale=is_unreachable,
         )
 
-        if is_stressed or is_degrading:
+        if mode == "static":
             features.calibration_delta = ctx.calibration_delta
-        if is_degrading:
             features.error_rate = ctx.error_rate
+        elif mode == "masked_off":
+            pass
+        else:
+            if is_stressed or is_degrading:
+                features.calibration_delta = ctx.calibration_delta
+            if is_degrading:
+                features.error_rate = ctx.error_rate
 
         return features
 
@@ -113,3 +124,47 @@ class GoldNormalizer:
     @staticmethod
     def normalize(silver: SilverFeatureVector) -> GoldStateVector:
         return GoldStateVector.from_silver(silver)
+
+
+def demo() -> None:
+    nominal = BronzeMetricSnapshot(
+        cloud_queue_depth=5,
+        rtt_ms=50.0,
+        sla_remaining_ms=300.0,
+        edge_context=EdgeContextReport(
+            operational_state=OperationalState.NOMINAL, calibration_delta=0.4, error_rate=0.3
+        ),
+    )
+    degrading = BronzeMetricSnapshot(
+        cloud_queue_depth=5,
+        rtt_ms=50.0,
+        sla_remaining_ms=300.0,
+        edge_context=EdgeContextReport(
+            operational_state=OperationalState.DEGRADING, calibration_delta=0.4, error_rate=0.3
+        ),
+    )
+
+    conditional_nominal = SilverEnricher().enrich(nominal, mode="conditional")
+    assert conditional_nominal.calibration_delta is None and conditional_nominal.error_rate is None, (
+        "conditional mode must hide extended signals when NOMINAL, matching the live gateway's default behavior"
+    )
+    conditional_degrading = SilverEnricher().enrich(degrading, mode="conditional")
+    assert conditional_degrading.calibration_delta == 0.4 and conditional_degrading.error_rate == 0.3, (
+        "conditional mode must reveal both extended signals when DEGRADING"
+    )
+
+    static_nominal = SilverEnricher().enrich(nominal, mode="static")
+    assert static_nominal.calibration_delta == 0.4 and static_nominal.error_rate == 0.3, (
+        "static mode must reveal extended signals regardless of operational_state"
+    )
+
+    masked_degrading = SilverEnricher().enrich(degrading, mode="masked_off")
+    assert masked_degrading.calibration_delta is None and masked_degrading.error_rate is None, (
+        "masked_off mode must hide extended signals even when DEGRADING"
+    )
+
+    print("medallion self-check passed")
+
+
+if __name__ == "__main__":
+    demo()

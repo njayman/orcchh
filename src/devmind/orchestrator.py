@@ -663,7 +663,7 @@ class EscalationDiagnosisMonitor:
             if self._should_diagnose(client_id, now):
                 self._last_diagnosed[client_id] = now
                 context = self._build_context(client_id)
-                # ponytail: awaited inline, so one client's diagnosis call serializes
+                # Awaited inline, so one client's diagnosis call serializes
                 # behind another's on this single queue consumer. Ollama can serve
                 # concurrent requests fine; upgrade path if this matters is
                 # asyncio.create_task(self.diagnosis_provider.diagnose(context)) per

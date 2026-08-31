@@ -1,0 +1,31 @@
+\hypertarget{abstract}{%
+\section{Abstract}\label{abstract}}
+
+Existing cascade systems like BranchyNet, MSDNet, EdgeBERT, RouteLLM use
+hardcoded confidence thresholds or hardware timers to route requests.
+They do not use live metrics from infrastructure state. This study
+explores a context-aware agentic gateway which uses an edge context
+protocol, a dynamic Medallion pipeline, MCP skills, PPO agents,
+bidirectional loop and a policy orchestration layer to make dynamic
+routing decisions. Here the PPO is trained offline in a Gymnasium
+simulation with domain randomization which generates a frozen policy.
+This policy is deployed to the PPO agent to make routing decisions. For
+steady and bursty types of traffic, the proposed system reduces cloud
+escalations from 100\%, i.e. static-threshold baselines, down to 19.5\%
+under both, eliminating SLA violations under bursty load entirely (down
+from 65--66\% for static thresholds) at a small, consistent accuracy
+cost (about one percentage point). This result required two rounds of
+diagnosis and correction during evaluation: the first trained policy was
+undertrained and was silently governed by its own deterministic safety
+fallback rather than its learned action, and once fixed, an
+unclamped-latency reward term was found to give the policy no gradient
+against escalating once an SLA was already violated, which it
+disproportionately did under sustained network degradation. Both are
+reported as part of the evaluation, not concealed. The system was
+compared against five baselines and eight literature baselines across
+three traffic scenarios, plus a seven-run ablation, including a
+governance-layer ablation comparing a shared frozen policy against a
+policy orchestration layer that can reuse, fine-tune, or train a new
+policy per client and, since a small local LLM was added as an
+oversight mechanism, escalate its own decision when warranted.
+

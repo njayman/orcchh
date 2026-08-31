@@ -7,6 +7,8 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+import httpx
+
 from devmind.agent import AgenticOrchestrator
 from devmind.edge import EdgeDevice
 from devmind.medallion import DynamicMetricRegistry, GoldNormalizer, SilverEnricher
@@ -58,6 +60,7 @@ class CascadeController:
         client_id: str = "default",
         drift_listener: DriftEventListener | None = None,
         action_log_path: str | None = None,
+        action_log_url: str | None = None,
     ):
         self.agent = agent
         self.edge = edge
@@ -70,6 +73,12 @@ class CascadeController:
         self.client_id = client_id
         self.drift_listener = drift_listener
         self.action_log_path = action_log_path
+        # action_log_path alone only works when the gateway and the
+        # orchestrator share a filesystem (same host/VM). In a real multi-region
+        # deployment they're separate pods, so the orchestrator's live-monitoring
+        # tail loop never sees anything. action_log_url forwards the same entry
+        # over HTTP when the two aren't co-located; harmless to set both.
+        self.action_log_url = action_log_url
 
     async def process(
         self,
@@ -146,7 +155,7 @@ class CascadeController:
         report: EdgeContextReport | None = None,
         fallback_reason: str | None = None,
     ) -> None:
-        if not self.action_log_path:
+        if not self.action_log_path and not self.action_log_url:
             return
         entry = {
             "timestamp": time.time(),
@@ -167,9 +176,15 @@ class CascadeController:
             entry["trust_score"] = report.trust_score
         if fallback_reason is not None:
             entry["fallback_reason"] = fallback_reason
-        os.makedirs(os.path.dirname(self.action_log_path), exist_ok=True)
-        with open(self.action_log_path, "a") as f:
-            f.write(json.dumps(entry) + "\n")
+        if self.action_log_path:
+            os.makedirs(os.path.dirname(self.action_log_path), exist_ok=True)
+            with open(self.action_log_path, "a") as f:
+                f.write(json.dumps(entry) + "\n")
+        if self.action_log_url:
+            try:
+                httpx.post(self.action_log_url, json=entry, timeout=2.0)
+            except httpx.HTTPError:
+                pass
 
     async def _unreachable_fallback(
         self, request_id: str, text: str, true_label: int | None, sla_budget_ms: float
@@ -232,6 +247,7 @@ def demo() -> None:
         controller = CascadeController.__new__(CascadeController)
         controller.client_id = "demo_client"
         controller.action_log_path = log_path
+        controller.action_log_url = None
 
         controller._log_action("r1", Action.ROUTE_TO_EDGE, "edge", 120.0, True, 1.0, False, report=None)
         with open(log_path) as f:
@@ -259,6 +275,16 @@ def demo() -> None:
         assert row2["error_rate"] == 0.2
         assert row2["trust_score"] == 0.4
         assert row2["fallback_reason"] == "low_confidence"
+
+        # action_log_url forwarding: an unreachable URL must not raise (fire-and-forget,
+        # off the request's critical path) -- and it must still write the local copy.
+        broken_controller = CascadeController.__new__(CascadeController)
+        broken_controller.client_id = "demo_client"
+        broken_controller.action_log_path = log_path
+        broken_controller.action_log_url = "http://127.0.0.1:1/log-action"
+        broken_controller._log_action("r3", Action.ROUTE_TO_EDGE, "edge", 50.0, True, 1.0, False, report=None)
+        with open(log_path) as f:
+            assert len(f.readlines()) == 3, "local write must still happen even if forwarding fails"
 
     print("cascade self-check passed")
 

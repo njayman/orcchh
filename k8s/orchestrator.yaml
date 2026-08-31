@@ -1,33 +1,29 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: devmind-cloud
+  name: devmind-orchestrator
   namespace: devmind
 spec:
   replicas: 1
-  # Recreate, not the default RollingUpdate: these single-node clusters don't
-  # have headroom for 2x replicas during a redeploy (see the ImagePullBackOff/
-  # Insufficient-cpu deadlock this caused during initial deploy). A few
-  # seconds of downtime while iterating on a mutable :test tag is fine here.
   strategy:
     type: Recreate
   selector:
     matchLabels:
-      app: devmind-cloud
+      app: devmind-orchestrator
   template:
     metadata:
       labels:
-        app: devmind-cloud
+        app: devmind-orchestrator
     spec:
       containers:
-        - name: devmind-cloud
-          image: __REGISTRY__/devmind-cloud:test
+        - name: devmind-orchestrator
+          image: __REGISTRY__/devmind-orchestrator:test
           imagePullPolicy: Always
           env:
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: __OTEL_ENDPOINT__
           ports:
-            - containerPort: 8001
+            - containerPort: 8002
           resources:
             requests:
               cpu: "250m"
@@ -38,14 +34,14 @@ spec:
           readinessProbe:
             httpGet:
               path: /health
-              port: 8001
+              port: 8002
             initialDelaySeconds: 30
             periodSeconds: 10
             failureThreshold: 6
           livenessProbe:
             httpGet:
               path: /health
-              port: 8001
+              port: 8002
             initialDelaySeconds: 60
             periodSeconds: 10
             failureThreshold: 6
@@ -53,12 +49,12 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: devmind-cloud
+  name: devmind-orchestrator
   namespace: devmind
 spec:
   type: LoadBalancer
   selector:
-    app: devmind-cloud
+    app: devmind-orchestrator
   ports:
-    - port: 8001
-      targetPort: 8001
+    - port: 8002
+      targetPort: 8002

@@ -1,0 +1,143 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasource
+  namespace: devmind
+data:
+  datasource.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus:9090
+        isDefault: true
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-provider
+  namespace: devmind
+data:
+  provider.yaml: |
+    apiVersion: 1
+    providers:
+      - name: devmind
+        folder: DevMind
+        type: file
+        options:
+          path: /var/lib/grafana/dashboards
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-devmind
+  namespace: devmind
+data:
+  devmind.json: |
+    {
+      "title": "DevMind Live Traffic",
+      "timezone": "utc",
+      "refresh": "10s",
+      "panels": [
+        {
+          "id": 1, "title": "Request rate by tier", "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+          "targets": [{"expr": "sum(rate(devmind_gateway_requests_total[1m])) by (tier)", "legendFormat": "{{tier}}"}]
+        },
+        {
+          "id": 2, "title": "p95 request latency (ms)", "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+          "targets": [{"expr": "histogram_quantile(0.95, sum(rate(devmind_gateway_latency_ms_bucket[1m])) by (le, client))", "legendFormat": "{{client}}"}]
+        },
+        {
+          "id": 3, "title": "SLA violation rate", "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+          "targets": [{"expr": "sum(rate(devmind_gateway_sla_violations_total[1m])) / sum(rate(devmind_gateway_requests_total[1m]))", "legendFormat": "sla_violation_rate"}]
+        },
+        {
+          "id": 4, "title": "Fallback rate", "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+          "targets": [{"expr": "sum(rate(devmind_gateway_fallbacks_total[1m])) / sum(rate(devmind_gateway_requests_total[1m]))", "legendFormat": "fallback_rate"}]
+        },
+        {
+          "id": 5, "title": "Cloud pod inference latency (ms), p95", "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+          "targets": [{"expr": "histogram_quantile(0.95, sum(rate(devmind_cloud_latency_ms_bucket[1m])) by (le))", "legendFormat": "cloud p95"}]
+        },
+        {
+          "id": 6, "title": "Onboarding decisions", "type": "timeseries",
+          "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+          "targets": [{"expr": "sum(increase(devmind_orchestrator_onboarding_decisions_total[5m])) by (decision)", "legendFormat": "{{decision}}"}]
+        }
+      ],
+      "schemaVersion": 39
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: devmind
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+        - name: grafana
+          image: grafana/grafana:11.2.0
+          ports:
+            - containerPort: 3000
+          # Anonymous admin auth, no TLS -- fine for a short-lived
+          # evaluation cluster torn down after the live test; add real auth
+          # if this ever becomes a persistent deployment.
+          env:
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: "true"
+            - name: GF_AUTH_ANONYMOUS_ORG_ROLE
+              value: "Admin"
+            - name: GF_AUTH_DISABLE_LOGIN_FORM
+              value: "true"
+          volumeMounts:
+            - name: datasource
+              mountPath: /etc/grafana/provisioning/datasources
+            - name: dashboard-provider
+              mountPath: /etc/grafana/provisioning/dashboards
+            - name: dashboard-json
+              mountPath: /var/lib/grafana/dashboards
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1"
+              memory: "512Mi"
+      volumes:
+        - name: datasource
+          configMap:
+            name: grafana-datasource
+        - name: dashboard-provider
+          configMap:
+            name: grafana-dashboard-provider
+        - name: dashboard-json
+          configMap:
+            name: grafana-dashboard-devmind
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: devmind
+spec:
+  type: LoadBalancer
+  selector:
+    app: grafana
+  ports:
+    - port: 3000
+      targetPort: 3000

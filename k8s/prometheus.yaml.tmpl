@@ -1,0 +1,77 @@
+# Deployed only in the cloud-region cluster. Scrapes the in-cluster cloud
+# and orchestrator pods directly, plus the two edge-region clusters' gateway
+# pods over their external LoadBalancer IPs (Prometheus scraping is a plain
+# periodic HTTP GET -- fine across regions, unlike K8s cluster networking).
+# __NEAR_TARGETS__/__FAR_TARGETS__ are rendered by deploy/gke-update.sh once
+# those clusters' Service external IPs are known (same "discover IP after
+# provisioning" pattern deploy/gcp-start.sh already uses).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: devmind
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 10s
+    scrape_configs:
+      - job_name: devmind-cloud
+        static_configs:
+          - targets: ["devmind-cloud:8001"]
+      - job_name: devmind-orchestrator
+        static_configs:
+          - targets: ["devmind-orchestrator:8002"]
+      - job_name: devmind-gateway-near
+        static_configs:
+          - targets: [__NEAR_TARGETS__]
+      - job_name: devmind-gateway-far
+        static_configs:
+          - targets: [__FAR_TARGETS__]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: devmind
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v2.55.1
+          ports:
+            - containerPort: 9090
+          volumeMounts:
+            - name: config
+              mountPath: /etc/prometheus
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+      volumes:
+        - name: config
+          configMap:
+            name: prometheus-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: devmind
+spec:
+  type: LoadBalancer
+  selector:
+    app: prometheus
+  ports:
+    - port: 9090
+      targetPort: 9090

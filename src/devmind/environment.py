@@ -119,10 +119,13 @@ class InferenceGatewayEnv(gym.Env):
         edge_model: DistilBERTEdge | None = None,
         cloud_model: BERTLargeCloud | None = None,
         use_reflect: bool = True,
+        silver_mode: str = "conditional",
     ):
         super().__init__()
         self.scenario = scenario or ScenarioConfig.steady()
         self.use_reflect = use_reflect
+        self.silver_mode = silver_mode
+        self._last_bronze: BronzeMetricSnapshot | None = None
         self._rng = np.random.default_rng(seed)
         self._edge_device = EdgeDevice()
         self._silver = SilverEnricher()
@@ -198,7 +201,17 @@ class InferenceGatewayEnv(gym.Env):
             gpu=self._rng.uniform(0.0, 0.3),
         )
         self._rtt = self._get_current_rtt()
-        return self._bronze_registry.snapshot()
+        self._last_bronze = self._bronze_registry.snapshot()
+        return self._last_bronze
+
+    def peek_extended_silver(self) -> np.ndarray:
+        # On-demand, full-reveal Silver pass over the current request's already-sampled
+        # Bronze snapshot. Used only by Ablation Run 5's agent-driven Silver condition
+        # to give a QUERY_EXTENDED_CONTEXT decision a genuine second look, mirroring the
+        # perception-cost trade-off the MCP skill interface models (Section 5).
+        assert self._last_bronze is not None, "peek_extended_silver() called before reset()/step()"
+        silver = self._silver.enrich(self._last_bronze, mode="static")
+        return self._gold.normalize(silver).slots.copy()
 
     def reset(
         self, *, seed: int | None = None, options: dict[str, Any] | None = None
@@ -211,14 +224,14 @@ class InferenceGatewayEnv(gym.Env):
         self._rtt = self.scenario.rtt_base
         self._dataset.shuffle_train()
         bronze = self._build_bronze()
-        silver = self._silver.enrich(bronze)
+        silver = self._silver.enrich(bronze, mode=self.silver_mode)
         gold = self._gold.normalize(silver)
         return gold.slots.copy(), {}
 
     def step(self, action: int) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
         step_results = self._inference_step(action)
         bronze = self._build_bronze()
-        silver = self._silver.enrich(bronze)
+        silver = self._silver.enrich(bronze, mode=self.silver_mode)
         gold = self._gold.normalize(silver)
         rate = self._get_current_rate()
         dt = 60.0 / rate if rate > 0 else 1.0

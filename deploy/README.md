@@ -1,8 +1,8 @@
 # Deploying to AWS for testing
 
-Target: a single EC2 instance running Minikube (matches the CLAUDE.md tech
-stack — Kubernetes/Minikube — without standing up a full EKS cluster for a
-test deploy).
+Target: a single EC2 instance running Minikube (matches the project's
+proposed tech stack — Kubernetes/Minikube — without standing up a full EKS
+cluster for a test deploy).
 
 ## 1. Launch the EC2 instance
 

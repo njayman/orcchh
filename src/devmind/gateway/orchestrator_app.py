@@ -10,12 +10,18 @@ from datetime import datetime, timezone
 import uvicorn
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
+from prometheus_client import Counter, make_asgi_app
 from pydantic import BaseModel
 
 from devmind.dataset import TASK_DATASETS
 from devmind.diagnosis import Diagnosis, OllamaDiagnosisProvider
 from devmind.environment import ScenarioConfig
 from devmind.orchestrator import EscalationDiagnosisMonitor, PolicyOrchestrator, ToleranceThresholds
+from devmind.tracing import setup_tracing
+
+_ONBOARDING_DECISIONS = Counter(
+    "devmind_orchestrator_onboarding_decisions_total", "Client onboarding decisions", ["decision"]
+)
 
 _PRESETS = {
     "steady": ScenarioConfig.steady,
@@ -99,7 +105,7 @@ def _log_diagnosis(orch: PolicyOrchestrator, client_id: str, diagnosis: Diagnosi
 
 
 def _make_diagnosis_callback(app: FastAPI, orch: PolicyOrchestrator, reason: str = "escalation"):
-    # ponytail: onboard() (and therefore _diagnose_unreachable_threshold) runs inside
+    # onboard() (and therefore _diagnose_unreachable_threshold) runs inside
     # run_in_executor's worker thread, not the event-loop thread, so scheduling the
     # broadcast must be thread-safe. run_coroutine_threadsafe works from either thread.
     def _callback(client_id: str, diagnosis: Diagnosis) -> None:
@@ -242,6 +248,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="DevMind Orchestrator Dashboard", version="0.1.0", lifespan=lifespan)
+app.mount("/metrics", make_asgi_app())
+setup_tracing("devmind-orchestrator", app)
 
 
 @app.get("/clients")
@@ -381,17 +389,38 @@ async def add_client(req: ClientRequest) -> dict:
         )
     loop = asyncio.get_running_loop()
     decision = await loop.run_in_executor(None, orch.onboard, oid, scenario, req.max_samples)
+    _ONBOARDING_DECISIONS.labels(decision=decision.value).inc()
     assigned = next(pid for pid, rec in orch.library.items() if oid in rec.clients_assigned)
     return {"client_id": oid, "task": req.task, "decision": decision.value, "policy_assigned": assigned}
+
+
+@app.post("/log-action")
+async def log_action(entry: dict) -> dict:
+    # Receiving end of CascadeController's action_log_url forwarding
+    # (cascade.py): lets a gateway pod in a different region/host from the
+    # orchestrator still feed the live-monitoring tail loop below, which
+    # otherwise only sees entries written to its own local filesystem.
+    loop = asyncio.get_running_loop()
+
+    def _append() -> None:
+        os.makedirs(os.path.dirname(_ACTION_LOG_PATH) or ".", exist_ok=True)
+        with open(_ACTION_LOG_PATH, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+
+    await loop.run_in_executor(None, _append)
+    return {"status": "ok"}
 
 
 @app.get("/health")
 async def health() -> dict:
     # Live monitoring depends on request_log.jsonl being visible on this
-    # process's filesystem -- true today (same host, or the shared Docker
-    # volume in the GCP deployment), but silent if that stops being true: the
-    # tail loop just sees a file that never grows, no error anywhere. Surface
-    # it here so an operator can tell "no traffic yet" apart from "wrong path".
+    # process's filesystem. In a co-located deployment (same host/pod) that's
+    # automatic; across separate pods/VMs (e.g. the GKE multi-region path)
+    # gateways must be configured with DEVMIND_ORCHESTRATOR_LOG_URL to forward
+    # entries here via POST /log-action instead. Silent either way if
+    # misconfigured: the tail loop just sees a file that never grows, no error
+    # anywhere. Surface it here so an operator can tell "no traffic yet" apart
+    # from "wrong path".
     exists = os.path.exists(_ACTION_LOG_PATH)
     return {
         "status": "ok",
