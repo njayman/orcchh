@@ -12,7 +12,7 @@ from tqdm import tqdm
 from devmind.agent import AgenticOrchestrator, PPONetwork
 from devmind.environment import InferenceGatewayEnv, ScenarioConfig
 from devmind.model_clients import BERTLargeCloud, DistilBERTEdge
-from devmind.models import GoldStateVector
+from devmind.models import Action, GoldStateVector
 
 
 @dataclass
@@ -301,6 +301,81 @@ def run_holdout_ablation(max_samples: int = 1000, policy_path: str = "ppo_policy
     ppo.load_state_dict(torch.load(policy_path, map_location="cpu", weights_only=True))
     agent = AgenticOrchestrator(ppo)
     return run_episode(env, ppo_policy(agent), desc="held_out/run6")
+
+
+def agent_driven_silver_policy(
+    agent: AgenticOrchestrator, env: InferenceGatewayEnv
+) -> Callable[[GoldStateVector], tuple[int, bool]]:
+    # Mirrors AgenticOrchestrator.decide()'s own logic (same thresholds, same
+    # fallback guards) but, unlike decide(), can actually act on
+    # QUERY_EXTENDED_CONTEXT: it pays the perception cost by asking the env for a
+    # freshly-revealed Silver pass over this request's Bronze snapshot, rather
+    # than reading a slot that was already zeroed or already revealed upstream by
+    # a fixed operational_state rule. This is eval-only scaffolding for Ablation
+    # Run 5 — agent.py's decide() stays untouched (single network call, as
+    # documented in Section 5) since that's the production code path.
+    def policy(gold: GoldStateVector) -> tuple[int, bool]:
+        action, entropy = agent.reason(gold)
+        fallback = entropy > agent.ENTROPY_FALLBACK_THRESHOLD or agent.is_ood(gold)
+        if fallback:
+            return agent._resolve_fallback(gold), True
+        agent.last_fallback_reason = None
+        if action == Action.QUERY_EXTENDED_CONTEXT:
+            revealed = env.peek_extended_silver()
+            calibration_delta, error_rate = revealed[10], revealed[11]
+            high_risk = (
+                calibration_delta > agent.QUERY_CALIBRATION_RISK_THRESHOLD
+                or error_rate > agent.QUERY_ERROR_RATE_RISK_THRESHOLD
+            )
+            return (Action.ESCALATE_TO_CLOUD if high_risk else Action.ROUTE_TO_EDGE), False
+        return Action(action), False
+
+    return policy
+
+
+def run_ablation_5_silver_modes(
+    scenario: ScenarioConfig,
+    policy_path: str = "ppo_policy.pt",
+    max_samples: int = 1000,
+    edge_model: DistilBERTEdge | None = None,
+    cloud_model: BERTLargeCloud | None = None,
+) -> dict[str, EvalMetrics]:
+    """Ablation Run 5: static vs conditional (current) vs agent-driven Silver
+    enrichment, isolating the dynamic Medallion pipeline's contribution the same
+    way Run 4 isolates the bidirectional loop's. Same frozen policy as run1_full
+    in all three conditions; only what Silver reveals to it changes."""
+    import torch
+
+    def load_agent() -> AgenticOrchestrator:
+        ppo = PPONetwork()
+        ppo.load_state_dict(torch.load(policy_path, map_location="cpu", weights_only=True))
+        return AgenticOrchestrator(ppo)
+
+    results: dict[str, EvalMetrics] = {}
+
+    env_static = InferenceGatewayEnv(
+        scenario, max_samples=max_samples, edge_model=edge_model, cloud_model=cloud_model, silver_mode="static"
+    )
+    results["run5a_static_silver"] = run_episode(
+        env_static, ppo_policy(load_agent()), desc=f"{scenario.name}/run5a_static_silver"
+    )
+
+    env_conditional = InferenceGatewayEnv(
+        scenario, max_samples=max_samples, edge_model=edge_model, cloud_model=cloud_model, silver_mode="conditional"
+    )
+    results["run5b_conditional_silver"] = run_episode(
+        env_conditional, ppo_policy(load_agent()), desc=f"{scenario.name}/run5b_conditional_silver"
+    )
+
+    env_agent_driven = InferenceGatewayEnv(
+        scenario, max_samples=max_samples, edge_model=edge_model, cloud_model=cloud_model, silver_mode="masked_off"
+    )
+    agent_for_5c = load_agent()
+    results["run5c_agent_driven_silver"] = run_episode(
+        env_agent_driven, agent_driven_silver_policy(agent_for_5c, env_agent_driven), desc=f"{scenario.name}/run5c_agent_driven_silver"
+    )
+
+    return results
 
 
 def print_results(results: dict[str, EvalMetrics], title: str = "Results") -> None:

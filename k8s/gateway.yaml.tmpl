@@ -1,36 +1,43 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: devmind-cloud
+  name: devmind-gateway-__NAME__
   namespace: devmind
 spec:
   replicas: 1
-  # Recreate, not the default RollingUpdate: these single-node clusters don't
-  # have headroom for 2x replicas during a redeploy (see the ImagePullBackOff/
-  # Insufficient-cpu deadlock this caused during initial deploy). A few
-  # seconds of downtime while iterating on a mutable :test tag is fine here.
   strategy:
     type: Recreate
   selector:
     matchLabels:
-      app: devmind-cloud
+      app: devmind-gateway-__NAME__
   template:
     metadata:
       labels:
-        app: devmind-cloud
+        app: devmind-gateway-__NAME__
     spec:
       containers:
-        - name: devmind-cloud
-          image: __REGISTRY__/devmind-cloud:test
+        - name: devmind-gateway
+          image: __REGISTRY__/devmind-gateway:test
           imagePullPolicy: Always
+          ports:
+            - containerPort: __PORT__
           env:
+            - name: DEVMIND_CLOUD_URL
+              value: __CLOUD_URL__
+            - name: DEVMIND_ORCHESTRATOR_URL
+              value: __ORCH_URL__
+            - name: DEVMIND_CLIENT_ID
+              value: __CLIENT__
+            - name: DEVMIND_PORT
+              value: "__PORT__"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: __OTEL_ENDPOINT__
-          ports:
-            - containerPort: 8001
+          envFrom:
+            - configMapRef:
+                name: devmind-test-knobs
           resources:
             requests:
-              cpu: "250m"
+              cpu: "200m"
               memory: "1Gi"
             limits:
               cpu: "1"
@@ -38,14 +45,14 @@ spec:
           readinessProbe:
             httpGet:
               path: /health
-              port: 8001
+              port: __PORT__
             initialDelaySeconds: 30
             periodSeconds: 10
             failureThreshold: 6
           livenessProbe:
             httpGet:
               path: /health
-              port: 8001
+              port: __PORT__
             initialDelaySeconds: 60
             periodSeconds: 10
             failureThreshold: 6
@@ -53,12 +60,12 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: devmind-cloud
+  name: devmind-gateway-__NAME__
   namespace: devmind
 spec:
   type: LoadBalancer
   selector:
-    app: devmind-cloud
+    app: devmind-gateway-__NAME__
   ports:
-    - port: 8001
-      targetPort: 8001
+    - port: __PORT__
+      targetPort: __PORT__

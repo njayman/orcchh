@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 import torch
 import uvicorn
 from fastapi import FastAPI
+from prometheus_client import Counter, Histogram, make_asgi_app
 from pydantic import BaseModel
 
 from devmind.agent import AgenticOrchestrator, PPONetwork
@@ -18,6 +19,15 @@ from devmind.cascade import CascadeController
 from devmind.edge import EdgeDevice, ResourceMonitor
 from devmind.medallion import DynamicMetricRegistry, GoldNormalizer, MetricSource, SilverEnricher
 from devmind.model_clients import CloudClient, DistilBERTEdge
+from devmind.tracing import setup_tracing
+
+_REQUESTS = Counter("devmind_gateway_requests_total", "Requests handled", ["tier", "client"])
+_LATENCY_BUCKETS_MS = (10, 25, 50, 75, 100, 150, 200, 300, 500, 750, 1000, 2000, 5000, float("inf"))
+_LATENCY = Histogram(
+    "devmind_gateway_latency_ms", "End-to-end request latency (ms)", ["client"], buckets=_LATENCY_BUCKETS_MS
+)
+_SLA_VIOLATIONS = Counter("devmind_gateway_sla_violations_total", "Requests that missed their SLA budget", ["client"])
+_FALLBACKS = Counter("devmind_gateway_fallbacks_total", "Requests routed by the safety fallback, not the learned policy", ["client"])
 
 _DEFAULT_POLICY_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "..", "ppo_policy.pt")
 _TRAFFIC_WINDOW_S = 60.0
@@ -89,10 +99,12 @@ async def lifespan(app: FastAPI):
     )
     agent = AgenticOrchestrator(_load_policy(), state_stats_path=stats_path)
     client_id = os.environ.get("DEVMIND_CLIENT_ID", "default")
-    action_log_path = os.environ.get("DEVMIND_ACTION_LOG_PATH", "docs/evaluation/request_log.jsonl")
+    action_log_path = os.environ.get("DEVMIND_ACTION_LOG_PATH", "evaluation/request_log.jsonl")
+    orchestrator_url = os.environ.get("DEVMIND_ORCHESTRATOR_URL")
+    action_log_url = f"{orchestrator_url}/log-action" if orchestrator_url else None
     controller = CascadeController(
         agent, edge, registry, silver, gold, edge_model, cloud_client,
-        client_id=client_id, action_log_path=action_log_path,
+        client_id=client_id, action_log_path=action_log_path, action_log_url=action_log_url,
     )
     app.state.controller = controller
     app.state.edge = edge
@@ -105,6 +117,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="DevMind Gateway", version="0.1.0", lifespan=lifespan)
+app.mount("/metrics", make_asgi_app())
+setup_tracing(f"devmind-gateway-{os.environ.get('DEVMIND_CLIENT_ID', 'default')}", app)
 
 
 @app.post("/infer", response_model=InferenceResponse)
@@ -112,6 +126,13 @@ async def infer(req: InferenceRequest) -> InferenceResponse:
     controller: CascadeController = app.state.controller
     app.state.request_times.append(time.time())
     outcome = await controller.process(str(uuid.uuid4()), req.text, req.sla_budget_ms, req.true_label)
+    client = controller.client_id
+    _REQUESTS.labels(tier=outcome.tier, client=client).inc()
+    _LATENCY.labels(client=client).observe(outcome.latency_ms)
+    if not outcome.sla_met:
+        _SLA_VIOLATIONS.labels(client=client).inc()
+    if outcome.fallback_triggered:
+        _FALLBACKS.labels(client=client).inc()
     return InferenceResponse(
         request_id=outcome.request_id,
         tier=outcome.tier,

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Replay the 6-block/60-min live traffic schedule from the 2026-08-05 run
-# (docs/evaluation/multi-region-live-traffic-test-2026-08-05.md) against an
+# (evaluation/multi-region-live-traffic-test-2026-08-05.md) against an
 # already-running stack. Does not create instances -- run gcp-up.sh first.
 #
 # Each block is 10 min. Per active client, a background curl loop on its
