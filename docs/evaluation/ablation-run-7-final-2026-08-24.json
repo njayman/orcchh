@@ -1,0 +1,92 @@
+{
+  "shared": {
+    "client_streamforge": {
+      "accuracy": 0.83,
+      "p95_latency": 183.76635315004475,
+      "sla_violation_rate": 0.02,
+      "escalation_rate": 0.13,
+      "energy_mj": 84.93646387179345,
+      "fallback_rate": 0.0,
+      "sla_margin_ms": 231.43705538535357,
+      "trust_score": 0.6612829290843663
+    },
+    "client_nhs": {
+      "accuracy": 0.81,
+      "p95_latency": 125.50030830001559,
+      "sla_violation_rate": 0.0,
+      "escalation_rate": 0.09,
+      "energy_mj": 71.24191267300782,
+      "fallback_rate": 0.0,
+      "sla_margin_ms": 241.6724612918801,
+      "trust_score": 0.8588813152322716
+    },
+    "client_babcock": {
+      "accuracy": 0.83,
+      "p95_latency": 939.6539197000493,
+      "sla_violation_rate": 1.0,
+      "escalation_rate": 0.15,
+      "energy_mj": 78.64824356777282,
+      "fallback_rate": 0.0,
+      "sla_margin_ms": 242.40191004274828,
+      "trust_score": 0.01
+    },
+    "client_newco": {
+      "accuracy": 0.81,
+      "p95_latency": 131.36165975011178,
+      "sla_violation_rate": 0.0,
+      "escalation_rate": 0.09,
+      "energy_mj": 74.52121043553662,
+      "fallback_rate": 0.0,
+      "sla_margin_ms": 235.26670842550396,
+      "trust_score": 0.8602377331610733
+    }
+  },
+  "orchestrated": {
+    "client_streamforge": {
+      "accuracy": 0.82,
+      "p95_latency": 134.54149134985514,
+      "sla_violation_rate": 0.0,
+      "escalation_rate": 0.14,
+      "energy_mj": 88.76284345857901,
+      "fallback_rate": 0.0,
+      "sla_margin_ms": 232.82976233699927,
+      "trust_score": 0.8721596204741021
+    },
+    "client_nhs": {
+      "accuracy": 0.83,
+      "p95_latency": 131.04589705011676,
+      "sla_violation_rate": 0.0,
+      "escalation_rate": 0.13,
+      "energy_mj": 79.66551793674252,
+      "fallback_rate": 0.0,
+      "sla_margin_ms": 240.93683855416722,
+      "trust_score": 0.8727451623077542
+    },
+    "client_babcock": {
+      "accuracy": 0.82,
+      "p95_latency": 882.3502916500843,
+      "sla_violation_rate": 1.0,
+      "escalation_rate": 0.1,
+      "energy_mj": 72.37558469107,
+      "fallback_rate": 0.0,
+      "sla_margin_ms": 242.55365291268035,
+      "trust_score": 0.01
+    },
+    "client_newco": {
+      "accuracy": 0.82,
+      "p95_latency": 109.3041251071112,
+      "sla_violation_rate": 0.0,
+      "escalation_rate": 0.11,
+      "energy_mj": 77.91655759611982,
+      "fallback_rate": 0.0,
+      "sla_margin_ms": 236.73282413996375,
+      "trust_score": 0.8634162699570338
+    }
+  },
+  "decisions": {
+    "client_streamforge": "reuse",
+    "client_nhs": "reuse",
+    "client_babcock": "fine_tune",
+    "client_newco": "reuse"
+  }
+}

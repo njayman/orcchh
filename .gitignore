@@ -6,4 +6,4 @@ dist/
 build/
 *.pt
 state_stats.json
-/docs/evaluation/
+/docs/evaluation/request_log.jsonl

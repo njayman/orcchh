@@ -1,0 +1,74 @@
+[
+  {
+    "policy": "client_streamforge",
+    "accuracy": 0.8133333333333334,
+    "p95_latency_ms": 124.09618816871466,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 0.09666666666666666,
+    "energy_mj": 79.49269174708093,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "client_nhs",
+    "accuracy": 0.8266666666666667,
+    "p95_latency_ms": 142.2755711350328,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 0.14,
+    "energy_mj": 79.37766454749095,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "client_babcock",
+    "accuracy": 0.86,
+    "p95_latency_ms": 937.9067823016763,
+    "sla_violation_rate": 1.0,
+    "escalation_rate": 1.0,
+    "energy_mj": 209.99999999999963,
+    "fallback_rate": 1.0
+  },
+  {
+    "policy": "client_newco",
+    "accuracy": 0.8066666666666666,
+    "p95_latency_ms": 147.90342446804667,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 0.13333333333333333,
+    "energy_mj": 83.8137564000214,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "client_streamforge",
+    "accuracy": 0.8266666666666667,
+    "p95_latency_ms": 149.18896474871437,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 0.13,
+    "energy_mj": 85.55497442333463,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "client_nhs",
+    "accuracy": 0.83,
+    "p95_latency_ms": 166.8301521851147,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 0.15,
+    "energy_mj": 80.12962406260031,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "client_babcock",
+    "accuracy": 0.8166666666666668,
+    "p95_latency_ms": 1017.852388216852,
+    "sla_violation_rate": 1.0,
+    "escalation_rate": 0.36999999999999994,
+    "energy_mj": 115.56446600499733,
+    "fallback_rate": 0.21666666666666667
+  },
+  {
+    "policy": "client_newco",
+    "accuracy": 0.8266666666666667,
+    "p95_latency_ms": 195.32399613257436,
+    "sla_violation_rate": 0.006666666666666667,
+    "escalation_rate": 0.11666666666666665,
+    "energy_mj": 80.75363735064609,
+    "fallback_rate": 0.0
+  }
+]

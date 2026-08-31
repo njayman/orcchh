@@ -1,0 +1,92 @@
+
+=== STEADY Baselines ===
+Policy               Acc      P95 Lat    SLA Viol   Esc%     Energy   Fallback
+--------------------------------------------------------------------------------
+always_edge          0.790    75.7       0.000      0.000    118.2    0.000   
+always_cloud         0.805    181.7      0.000      1.000    420.0    0.000   
+static_tau_0.6       0.805    168.5      0.000      1.000    420.0    0.000   
+static_tau_0.95      0.805    171.7      0.000      1.000    420.0    0.000   
+random               0.785    172.6      0.000      0.520    273.6    0.000   
+
+=== STEADY Literature Baselines ===
+Policy               Acc      P95 Lat    SLA Viol   Esc%     Energy   Fallback
+--------------------------------------------------------------------------------
+branchynet_entropy   0.805    184.2      0.000      0.975    412.3    0.000   
+msdnet_budget        0.805    198.1      0.000      1.000    420.0    0.000   
+edgebert_dvfs        0.805    196.0      0.000      1.000    420.0    0.000   
+spinn_connectivity   0.805    203.2      0.000      1.000    420.0    0.000   
+proteus_accuracy_floor 0.805    202.2      0.000      1.000    420.0    0.000   
+splitwise_queue_energy 0.805    198.1      0.000      1.000    420.0    0.000   
+routellm_learned_router 0.790    73.0       0.000      0.000    113.8    0.000   
+nsga2_pareto_rule    0.805    221.3      0.000      1.000    420.0    0.000   
+
+=== STEADY Ablation ===
+Policy               Acc      P95 Lat    SLA Viol   Esc%     Energy   Fallback
+--------------------------------------------------------------------------------
+run1_full            0.800    148.2      0.000      0.205    174.3    0.000   
+run2_confidence_only 0.805    205.2      0.000      1.000    420.0    0.000   
+run3_calibration_delta 0.805    215.0      0.000      1.000    420.0    0.000   
+run4_no_reflect      0.795    153.5      0.000      0.180    173.1    0.000   
+
+=== BURSTY Baselines ===
+Policy               Acc      P95 Lat    SLA Viol   Esc%     Energy   Fallback
+--------------------------------------------------------------------------------
+always_edge          0.785    72.4       0.000      0.000    133.4    0.000   
+always_cloud         0.805    644.0      0.645      1.000    994.8    0.000   
+static_tau_0.6       0.805    647.7      0.650      1.000    994.8    0.000   
+static_tau_0.95      0.805    646.1      0.645      1.000    994.8    0.000   
+random               0.775    215.2      0.000      0.470    288.9    0.000   
+
+=== BURSTY Literature Baselines ===
+Policy               Acc      P95 Lat    SLA Viol   Esc%     Energy   Fallback
+--------------------------------------------------------------------------------
+branchynet_entropy   0.805    643.2      0.630      0.975    987.3    0.000   
+msdnet_budget        0.805    651.2      0.645      1.000    994.8    0.000   
+edgebert_dvfs        0.805    647.4      0.640      1.000    994.8    0.000   
+spinn_connectivity   0.805    654.8      0.645      1.000    994.8    0.000   
+proteus_accuracy_floor 0.805    654.0      0.635      1.000    994.8    0.000   
+splitwise_queue_energy 0.805    651.5      0.645      1.000    994.8    0.000   
+routellm_learned_router 0.790    69.0       0.000      0.000    131.0    0.000   
+nsga2_pareto_rule    0.805    641.9      0.645      1.000    994.8    0.000   
+
+=== BURSTY Ablation ===
+Policy               Acc      P95 Lat    SLA Viol   Esc%     Energy   Fallback
+--------------------------------------------------------------------------------
+run1_full            0.795    163.3      0.000      0.185    182.5    0.000   
+run2_confidence_only 0.805    640.6      0.635      1.000    994.8    0.000   
+run3_calibration_delta 0.805    641.5      0.630      1.000    994.8    0.000   
+run4_no_reflect      0.800    151.9      0.000      0.195    187.6    0.000   
+
+=== DEGRADED_NETWORK Baselines ===
+Policy               Acc      P95 Lat    SLA Viol   Esc%     Energy   Fallback
+--------------------------------------------------------------------------------
+always_edge          0.790    459.8      1.000      0.000    115.4    0.000   
+always_cloud         0.805    972.3      1.000      1.000    420.0    0.000   
+static_tau_0.6       0.805    981.3      1.000      1.000    420.0    0.000   
+static_tau_0.95      0.805    984.5      1.000      1.000    420.0    0.000   
+random               0.805    978.3      1.000      0.525    277.8    0.000   
+
+=== DEGRADED_NETWORK Literature Baselines ===
+Policy               Acc      P95 Lat    SLA Viol   Esc%     Energy   Fallback
+--------------------------------------------------------------------------------
+branchynet_entropy   0.805    951.4      1.000      0.975    412.6    0.000   
+msdnet_budget        0.790    456.0      1.000      0.000    116.0    0.000   
+edgebert_dvfs        0.805    979.0      1.000      1.000    420.0    0.000   
+spinn_connectivity   0.790    449.8      1.000      0.000    114.6    0.000   
+proteus_accuracy_floor 0.805    984.2      1.000      1.000    420.0    0.000   
+splitwise_queue_energy 0.805    984.5      1.000      1.000    420.0    0.000   
+routellm_learned_router 0.790    452.1      1.000      0.000    113.1    0.000   
+nsga2_pareto_rule    0.805    970.0      1.000      1.000    420.0    0.000   
+
+=== DEGRADED_NETWORK Ablation ===
+Policy               Acc      P95 Lat    SLA Viol   Esc%     Energy   Fallback
+--------------------------------------------------------------------------------
+run1_full            0.805    980.7      1.000      1.000    420.0    1.000   
+run2_confidence_only 0.805    1007.0     1.000      1.000    420.0    0.000   
+run3_calibration_delta 0.805    1017.1     1.000      1.000    420.0    0.000   
+run4_no_reflect      0.805    988.8      1.000      1.000    420.0    1.000   
+
+=== HELD-OUT SCENARIO (Run 6) ===
+Policy               Acc      P95 Lat    SLA Viol   Esc%     Energy   Fallback
+--------------------------------------------------------------------------------
+run6_held_out        0.805    14148.5    1.000      1.000    2133.0   1.000   

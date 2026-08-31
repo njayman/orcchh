@@ -1,0 +1,92 @@
+[
+  {
+    "policy": "run5a_static_silver",
+    "accuracy": 0.805,
+    "p95_latency_ms": 128.98496859982285,
+    "sla_violation_rate": 0.005,
+    "escalation_rate": 0.19,
+    "energy_mj": 174.8217520245555,
+    "fallback_rate": 0.0,
+    "scenario": "steady"
+  },
+  {
+    "policy": "run5b_conditional_silver",
+    "accuracy": 0.8,
+    "p95_latency_ms": 126.45468700018449,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 0.175,
+    "energy_mj": 167.78267402280505,
+    "fallback_rate": 0.0,
+    "scenario": "steady"
+  },
+  {
+    "policy": "run5c_agent_driven_silver",
+    "accuracy": 0.785,
+    "p95_latency_ms": 120.73879324996369,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 0.19,
+    "energy_mj": 174.81130682194123,
+    "fallback_rate": 0.0,
+    "scenario": "steady"
+  },
+  {
+    "policy": "run5a_static_silver",
+    "accuracy": 0.815,
+    "p95_latency_ms": 142.94398725008955,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 0.175,
+    "energy_mj": 182.30244407835954,
+    "fallback_rate": 0.0,
+    "scenario": "bursty"
+  },
+  {
+    "policy": "run5b_conditional_silver",
+    "accuracy": 0.79,
+    "p95_latency_ms": 162.27741130010145,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 0.23,
+    "energy_mj": 200.14732865911725,
+    "fallback_rate": 0.0,
+    "scenario": "bursty"
+  },
+  {
+    "policy": "run5c_agent_driven_silver",
+    "accuracy": 0.8,
+    "p95_latency_ms": 184.19761469993787,
+    "sla_violation_rate": 0.005,
+    "escalation_rate": 0.21,
+    "energy_mj": 191.90857265551497,
+    "fallback_rate": 0.0,
+    "scenario": "bursty"
+  },
+  {
+    "policy": "run5a_static_silver",
+    "accuracy": 0.815,
+    "p95_latency_ms": 898.9149632999215,
+    "sla_violation_rate": 1.0,
+    "escalation_rate": 0.28,
+    "energy_mj": 200.2452065989935,
+    "fallback_rate": 0.0,
+    "scenario": "degraded_network"
+  },
+  {
+    "policy": "run5b_conditional_silver",
+    "accuracy": 0.795,
+    "p95_latency_ms": 920.456688000013,
+    "sla_violation_rate": 1.0,
+    "escalation_rate": 0.25,
+    "energy_mj": 190.9085367366766,
+    "fallback_rate": 0.0,
+    "scenario": "degraded_network"
+  },
+  {
+    "policy": "run5c_agent_driven_silver",
+    "accuracy": 0.805,
+    "p95_latency_ms": 915.4839228500804,
+    "sla_violation_rate": 1.0,
+    "escalation_rate": 0.27,
+    "energy_mj": 196.24013515005493,
+    "fallback_rate": 0.0,
+    "scenario": "degraded_network"
+  }
+]

@@ -1,0 +1,18 @@
+
+=== RUN 7: Single Shared Policy ===
+Policy               Acc      P95 Lat    SLA Viol   Esc%     Energy   Fallback
+--------------------------------------------------------------------------------
+client_streamforge   0.813    124.1      0.000      0.097    79.5     0.000   
+client_nhs           0.827    142.3      0.000      0.140    79.4     0.000   
+client_babcock       0.860    937.9      1.000      1.000    210.0    1.000   
+client_newco         0.807    147.9      0.000      0.133    83.8     0.000   
+
+=== RUN 7: Policy Orchestration Layer ===
+Policy               Acc      P95 Lat    SLA Viol   Esc%     Energy   Fallback
+--------------------------------------------------------------------------------
+client_streamforge   0.827    149.2      0.000      0.130    85.6     0.000   
+client_nhs           0.830    166.8      0.000      0.150    80.1     0.000   
+client_babcock       0.817    1017.9     1.000      0.370    115.6    0.217   
+client_newco         0.827    195.3      0.007      0.117    80.8     0.000   
+
+Per-client decisions: {'client_streamforge': 'reuse', 'client_nhs': 'reuse', 'client_babcock': 'fine_tune', 'client_newco': 'reuse'}

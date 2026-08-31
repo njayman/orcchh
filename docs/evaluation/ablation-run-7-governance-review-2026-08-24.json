@@ -1,0 +1,40 @@
+{
+  "description": "Ablation Run 7 governance-layer comparison, 2026-08-24. Four synthetic clients (CLIENT_SCENARIOS) onboarded against the seed policy (ppo_policy.pt) via PolicyOrchestrator.onboard(), with LLM governance review (_governance_review, Ollama gemma4:12b-it-qat) enabled. fine_tune_steps=2000, train_new_steps=8000, max_samples=300, eval_n_runs=1.",
+  "decisions": {
+    "client_streamforge": "reuse",
+    "client_nhs": "reuse",
+    "client_babcock": "train_new",
+    "client_newco": "reuse"
+  },
+  "reviews": [
+    {
+      "client": "client_streamforge",
+      "agrees": true,
+      "recommended": "reuse",
+      "justification": "The seed policy exceeds all requirements for the client's bursty scenario, making reuse an optimal and cost-effective choice.",
+      "parsed_ok": true
+    },
+    {
+      "client": "client_nhs",
+      "agrees": true,
+      "recommended": "reuse",
+      "justification": "The seed model significantly exceeds all requirements, making reuse the most cost-effective and safe choice.",
+      "parsed_ok": true
+    },
+    {
+      "client": "client_babcock",
+      "agrees": false,
+      "recommended": "train_new",
+      "justification": "The seed policy's sla_violation_rate of 1.00 significantly exceeds the maximum allowed threshold of 0.15.",
+      "parsed_ok": true
+    },
+    {
+      "client": "client_newco",
+      "agrees": true,
+      "recommended": "reuse",
+      "justification": "The 'seed' policy meets all requirements and is a viable reuse candidate.",
+      "parsed_ok": true
+    }
+  ],
+  "note": "The deterministic-rule-only decision for client_babcock (governance review disabled) was fine_tune -- see the identical decisions dict in the earlier meta-policy comparison run referenced in option-b-meta-policy-failure-2026-08-24.md. Governance review escalated it to train_new here. This file was reconstructed from the session transcript that produced it (script: run_ablation7_governance.py, not separately checked into the repo) after a code-vs-report review found the report's quotes were not traceable to any file in docs/evaluation/ -- this file closes that gap with the exact real output, not a re-run or a paraphrase."
+}

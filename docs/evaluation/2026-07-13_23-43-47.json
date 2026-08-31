@@ -1,0 +1,191 @@
+[
+  {
+    "policy": "always_edge",
+    "accuracy": 0.79,
+    "p95_latency_ms": 70.56765754852677,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 0.0,
+    "energy_mj": 112.0449491484971,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "always_cloud",
+    "accuracy": 0.805,
+    "p95_latency_ms": 369.56361785036273,
+    "sla_violation_rate": 0.175,
+    "escalation_rate": 1.0,
+    "energy_mj": 420.0000000000013,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "static_tau_0.6",
+    "accuracy": 0.805,
+    "p95_latency_ms": 236.56657560044542,
+    "sla_violation_rate": 0.03,
+    "escalation_rate": 1.0,
+    "energy_mj": 420.0000000000013,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "static_tau_0.95",
+    "accuracy": 0.805,
+    "p95_latency_ms": 191.60842759833028,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 1.0,
+    "energy_mj": 420.0000000000013,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "random",
+    "accuracy": 0.815,
+    "p95_latency_ms": 182.17487934729434,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 0.555,
+    "energy_mj": 284.45321096341377,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "run1_full",
+    "accuracy": 0.795,
+    "p95_latency_ms": 39.28189279969956,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 0.01,
+    "energy_mj": 115.22179952090383,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "run2_confidence_only",
+    "accuracy": 0.805,
+    "p95_latency_ms": 206.96778175319196,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 1.0,
+    "energy_mj": 420.0000000000013,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "always_edge",
+    "accuracy": 0.79,
+    "p95_latency_ms": 40.21938450088783,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 0.0,
+    "energy_mj": 128.05354981345457,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "always_cloud",
+    "accuracy": 0.805,
+    "p95_latency_ms": 641.1365372025554,
+    "sla_violation_rate": 0.61,
+    "escalation_rate": 1.0,
+    "energy_mj": 994.8000000000001,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "static_tau_0.6",
+    "accuracy": 0.805,
+    "p95_latency_ms": 638.3168686522025,
+    "sla_violation_rate": 0.63,
+    "escalation_rate": 1.0,
+    "energy_mj": 994.8000000000001,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "static_tau_0.95",
+    "accuracy": 0.805,
+    "p95_latency_ms": 642.8452858005127,
+    "sla_violation_rate": 0.635,
+    "escalation_rate": 1.0,
+    "energy_mj": 994.8000000000001,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "random",
+    "accuracy": 0.795,
+    "p95_latency_ms": 250.58842545487548,
+    "sla_violation_rate": 0.005,
+    "escalation_rate": 0.485,
+    "energy_mj": 306.81075505952253,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "run1_full",
+    "accuracy": 0.79,
+    "p95_latency_ms": 39.0942543445999,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 0.035,
+    "energy_mj": 137.26970472016285,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "run2_confidence_only",
+    "accuracy": 0.805,
+    "p95_latency_ms": 642.8197265536844,
+    "sla_violation_rate": 0.635,
+    "escalation_rate": 1.0,
+    "energy_mj": 994.8000000000001,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "always_edge",
+    "accuracy": 0.79,
+    "p95_latency_ms": 421.1182095506956,
+    "sla_violation_rate": 1.0,
+    "escalation_rate": 0.0,
+    "energy_mj": 112.48742123088856,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "always_cloud",
+    "accuracy": 0.805,
+    "p95_latency_ms": 963.2643344040844,
+    "sla_violation_rate": 1.0,
+    "escalation_rate": 1.0,
+    "energy_mj": 420.0000000000013,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "static_tau_0.6",
+    "accuracy": 0.805,
+    "p95_latency_ms": 954.0905735007982,
+    "sla_violation_rate": 1.0,
+    "escalation_rate": 1.0,
+    "energy_mj": 420.0000000000013,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "static_tau_0.95",
+    "accuracy": 0.805,
+    "p95_latency_ms": 953.7167227485043,
+    "sla_violation_rate": 1.0,
+    "escalation_rate": 1.0,
+    "energy_mj": 420.0000000000013,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "random",
+    "accuracy": 0.785,
+    "p95_latency_ms": 936.0912653522973,
+    "sla_violation_rate": 1.0,
+    "escalation_rate": 0.465,
+    "energy_mj": 255.20631248751235,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "run1_full",
+    "accuracy": 0.79,
+    "p95_latency_ms": 420.3116434979165,
+    "sla_violation_rate": 1.0,
+    "escalation_rate": 0.0,
+    "energy_mj": 113.5883311072512,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "run2_confidence_only",
+    "accuracy": 0.805,
+    "p95_latency_ms": 962.320985151382,
+    "sla_violation_rate": 1.0,
+    "escalation_rate": 1.0,
+    "energy_mj": 420.0000000000013,
+    "fallback_rate": 0.0
+  }
+]

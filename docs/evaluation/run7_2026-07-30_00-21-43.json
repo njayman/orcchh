@@ -1,0 +1,74 @@
+[
+  {
+    "policy": "client_streamforge",
+    "accuracy": 0.82,
+    "p95_latency_ms": 39.27728510199811,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 0.02,
+    "energy_mj": 66.39688496450353,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "client_nhs",
+    "accuracy": 0.82,
+    "p95_latency_ms": 38.088811054622056,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 0.02,
+    "energy_mj": 60.19773046233679,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "client_babcock",
+    "accuracy": 0.82,
+    "p95_latency_ms": 419.69807084569766,
+    "sla_violation_rate": 1.0,
+    "escalation_rate": 0.0,
+    "energy_mj": 55.19248253412162,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "client_newco",
+    "accuracy": 0.82,
+    "p95_latency_ms": 38.47506039994187,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 0.02,
+    "energy_mj": 64.23703258429126,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "client_streamforge",
+    "accuracy": 0.82,
+    "p95_latency_ms": 42.49890185210075,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 0.05,
+    "energy_mj": 72.26393855092864,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "client_nhs",
+    "accuracy": 0.82,
+    "p95_latency_ms": 38.01628819775942,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 0.0,
+    "energy_mj": 56.437068400108764,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "client_babcock",
+    "accuracy": 0.82,
+    "p95_latency_ms": 418.3445035472687,
+    "sla_violation_rate": 1.0,
+    "escalation_rate": 0.01,
+    "energy_mj": 57.36014441062861,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "client_newco",
+    "accuracy": 0.84,
+    "p95_latency_ms": 39.15059255079541,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 0.04,
+    "energy_mj": 67.48920952630183,
+    "fallback_rate": 0.0
+  }
+]
