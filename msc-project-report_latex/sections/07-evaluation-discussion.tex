@@ -6,9 +6,15 @@ All results below are the final run
 policy trained after both fixes described in Section 5 (100,000 steps for the
 undertraining fix, then a further 100,000 for the reward-gradient fix), with
 one run per policy, \textbf{max\_samples=1000}, real HuggingFace CPU
-inference throughout. Two earlier runs exist in the same directory and
-are referenced only where the contrast itself is the finding (the
-undertraining and reward-gradient bugs), never as the headline numbers.
+inference throughout. Two earlier runs are retained in the same
+directory for traceability and are cited only in Section 5, where the
+contrast itself is the finding, never as headline numbers here:
+\textbf{evaluation/2026-08-20\_06-40-51.json} records the undertrained
+policy at \textbf{fallback\_rate=1.000} in all three scenarios, and
+\textbf{evaluation/2026-08-20\_08-42-51.json} records the
+post-undertraining, pre-reward-gradient state whose degraded-network
+row supplies the 81.5\% escalation, 365.0 energy and 1067.8ms p95
+figures quoted there.
 
 \hypertarget{evaluation-strategy}{%
 \subsection{Evaluation strategy}\label{evaluation-strategy}}
