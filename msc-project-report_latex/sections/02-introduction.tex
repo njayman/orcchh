@@ -5,8 +5,8 @@
 \subsection{Problem Statement}\label{problem-statement}}
 
 Consider a confidence-only cascade router like that of RouteLLM (Ong et
-al., 2024) - a classifier reading a request and deciding whether a cheap
-or expensive model should answer it, a choice made by comparing
+al., 2024) where a classifier is reading a request and deciding whether a cheap
+or expensive model should answer it. It is a choice made by comparing
 preference data the models themselves produce against the input. The
 edge device answering that request is under continual CPU and thermal
 stress. Guo et al. (2017) have shown that this kind of stress
@@ -14,13 +14,13 @@ causes present-day neural networks to produce wrong results: a
 model\textquotesingle s softmax output stays confident in a particular
 result while the prediction underneath it degrades. A router that bases
 its decision solely on the confidence value therefore cannot tell apart
-a easy input from a difficult one the device has answered
+an easy input from a difficult one the device has answered
 wrongly because its confidence signal has drifted. Such a router returns
 a confidently wrong answer to the edge, when the true cause of the error
 was the load on the device rather than the difficulty of the input. This
-is the first of two failure modes this project addresses: Failure A, in
-which the operational health of the edge device at the moment of
-inference is not taken into account by the routing decision. BranchyNet
+is the first of two failure modes this project addresses. Failure A is
+that the routing decision never sees the operational health of the edge
+device at the moment of inference. BranchyNet
 (Teerapittayanon et al., 2016) and MSDNet (Huang et al., 2018) share the
 same limitation from the other side: both rely on either a confidence or
 entropy threshold, or a computational budget fixed at design time, and
@@ -112,7 +112,7 @@ consequences of those actions?
  Edge as an actor. Per the paper, the Edge Context Protocol is a new
  way of designing edge devices in which the devices report their
  calibration state actively rather than just provide predictions, which
- closes failure B, a whole type of error that BranchyNet MSDNet
+ closes failure A, a whole type of error that BranchyNet MSDNet
  EdgeBERT and RouteLLM fail to discover.
  \end{quote}
 \item
@@ -147,7 +147,8 @@ consequences of those actions?
  Two-way agent loop. Escalation outcomes feed back into the
  edge\textquotesingle s own context state within the request lifecycle
  itself, not only through a slow offline retraining loop that
- doesn\textquotesingle t exist in this design.
+ doesn\textquotesingle t exist in this design. Together with the dynamic
+ pipeline above, this closes failure B.
  \end{quote}
 \item
  \begin{quote}
