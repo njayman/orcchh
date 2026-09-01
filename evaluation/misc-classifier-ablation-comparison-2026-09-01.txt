@@ -1,0 +1,33 @@
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+
+########## heuristic (baseline) ##########
+  run1_full                    acc=0.785 p95=164.5ms sla_viol=0.000 esc=0.235 energy=185.1 fallback=0.000
+  run2_confidence_only         acc=0.805 p95=173.2ms sla_viol=0.000 esc=1.000 energy=420.0 fallback=0.000
+  run3_calibration_delta       acc=0.805 p95=175.0ms sla_viol=0.000 esc=1.000 energy=420.0 fallback=0.000
+  run4_no_reflect              acc=0.795 p95=145.7ms sla_viol=0.000 esc=0.255 energy=191.6 fallback=0.000
+  run1_full                    acc=0.780 p95=146.9ms sla_viol=0.000 esc=0.195 energy=194.3 fallback=0.000
+  run2_confidence_only         acc=0.805 p95=628.4ms sla_viol=0.600 esc=1.000 energy=994.8 fallback=0.000
+  run3_calibration_delta       acc=0.805 p95=636.1ms sla_viol=0.600 esc=1.000 energy=994.8 fallback=0.000
+  run4_no_reflect              acc=0.795 p95=124.9ms sla_viol=0.000 esc=0.180 energy=188.4 fallback=0.000
+  run1_full                    acc=0.805 p95=889.2ms sla_viol=1.000 esc=0.245 energy=193.0 fallback=0.000
+  run2_confidence_only         acc=0.805 p95=931.6ms sla_viol=1.000 esc=1.000 energy=420.0 fallback=0.000
+  run3_calibration_delta       acc=0.805 p95=939.6ms sla_viol=1.000 esc=1.000 energy=420.0 fallback=0.000
+  run4_no_reflect              acc=0.785 p95=930.4ms sla_viol=1.000 esc=0.295 energy=203.8 fallback=0.000
+  run6_held_out                acc=0.805 p95=3894.1ms sla_viol=1.000 esc=0.265 energy=326.5 fallback=0.000
+
+########## WITH sim-trained classifier ##########
+  run1_full                    acc=0.785 p95=82.6ms sla_viol=0.000 esc=0.035 energy=127.9 fallback=0.000
+  run2_confidence_only         acc=0.805 p95=173.1ms sla_viol=0.000 esc=1.000 energy=420.0 fallback=0.000
+  run3_calibration_delta       acc=0.805 p95=190.9ms sla_viol=0.000 esc=1.000 energy=420.0 fallback=0.000
+  run4_no_reflect              acc=0.795 p95=78.6ms sla_viol=0.000 esc=0.020 energy=122.1 fallback=0.000
+  run1_full                    acc=0.800 p95=78.8ms sla_viol=0.000 esc=0.030 energy=140.3 fallback=0.000
+  run2_confidence_only         acc=0.805 p95=632.3ms sla_viol=0.605 esc=1.000 energy=994.8 fallback=0.000
+  run3_calibration_delta       acc=0.805 p95=631.9ms sla_viol=0.600 esc=1.000 energy=994.8 fallback=0.000
+  run4_no_reflect              acc=0.790 p95=73.7ms sla_viol=0.000 esc=0.015 energy=132.4 fallback=0.000
+  run1_full                    acc=0.790 p95=486.6ms sla_viol=1.000 esc=0.045 energy=126.7 fallback=0.000
+  run2_confidence_only         acc=0.805 p95=950.9ms sla_viol=1.000 esc=1.000 energy=420.0 fallback=0.000
+  run3_calibration_delta       acc=0.805 p95=937.1ms sla_viol=1.000 esc=1.000 energy=420.0 fallback=0.000
+  run4_no_reflect              acc=0.790 p95=875.1ms sla_viol=1.000 esc=0.070 energy=134.8 fallback=0.000
+  run6_held_out                acc=0.790 p95=680.8ms sla_viol=1.000 esc=0.040 energy=151.9 fallback=0.000
+
+DONE
