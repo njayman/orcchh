@@ -25,20 +25,19 @@ device at the moment of inference. BranchyNet
 same limitation from the other side: both rely on either a confidence or
 entropy threshold, or a computational budget fixed at design time, and
 neither reads the real-time condition of the infrastructure it runs on.
-
 EdgeBERT (Tambe et al., 2021) goes further by reacting to the state of
 the hardware, but limits itself to its own chip\textquotesingle s
-entropy/voltage-frequency envelope. A second, largely separate failure
-compounds the first: present-day cascade systems apply the same fixed
-enrichment pipeline to every request regardless of the edge's health,
-and none of them close the loop. Whether the SLA was met, or whether the
-cloud would have been the more accurate choice, is never fed back to the
-edge device as a form of self-correction. As a result, the edge
-continues to report the same profile even after repeated deadline
-misses. Failure B is the absence, across every system surveyed in
-Section 3, of both a dynamic pipeline that measures differently
-according to the current edge situation, and a closing mechanism that
-lets an outcome correct the edge\textquotesingle s own self-report.
+entropy/voltage-frequency envelope.
+
+A second failure sits on top of the first. Present-day cascade systems
+run the same fixed enrichment pipeline over every request, whatever
+state the edge is in, and no outcome ever travels back to it. Whether
+the SLA was met, or whether the cloud would have been the more accurate
+choice, changes nothing about how the next request from that device is
+handled, even after repeated deadline misses. Failure B is the absence,
+across every system surveyed in Section 3, of both a dynamic pipeline
+that measures differently according to the current edge situation, and a
+return path that lets an outcome correct how the edge is read.
 
 The whole scenario is what motivates the research question of this
 dissertation: what is gained by replacing static passive thresholds with
@@ -125,7 +124,7 @@ consequences of those actions?
 \item
  \begin{quote}
  SLA remaining and predicted RTT as per-request signals at routing
- level. Every routing decision sees the current request's own SLA
+ level. Every routing decision sees the current request\textquotesingle s own SLA
  remaining and predicted network RTT, not an aggregate cluster-level
  budget, a granularity missing from Splitwise (cluster/phase-level
  scheduling) and every cascade baseline studied. This is a soft,
