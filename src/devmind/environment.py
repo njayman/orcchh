@@ -8,7 +8,7 @@ import numpy as np
 from gymnasium import spaces
 
 from devmind.dataset import load_task_dataset
-from devmind.edge import EdgeDevice
+from devmind.edge import EdgeDevice, MiscalibrationClassifier
 from devmind.medallion import DynamicMetricRegistry, GoldNormalizer, MetricSource, SilverEnricher
 from devmind.model_clients import BERTLargeCloud, DistilBERTEdge, InferenceResult
 from devmind.models import (
@@ -127,7 +127,11 @@ class InferenceGatewayEnv(gym.Env):
         self.silver_mode = silver_mode
         self._last_bronze: BronzeMetricSnapshot | None = None
         self._rng = np.random.default_rng(seed)
-        self._edge_device = EdgeDevice()
+        # Loaded once and reused across reset() calls, not reloaded from disk every
+        # episode; None (the default, unless DEVMIND_MISC_CLASSIFIER_PATH is set)
+        # means every EdgeDevice() constructed below keeps its own fresh default.
+        self._misc_classifier = MiscalibrationClassifier.from_env()
+        self._edge_device = EdgeDevice(classifier=self._misc_classifier)
         self._silver = SilverEnricher()
         self._gold = GoldNormalizer()
         self._state = SimulationState()
@@ -218,7 +222,7 @@ class InferenceGatewayEnv(gym.Env):
     ) -> tuple[np.ndarray, dict[str, Any]]:
         super().reset(seed=seed)
         self._state = SimulationState()
-        self._edge_device = EdgeDevice()
+        self._edge_device = EdgeDevice(classifier=self._misc_classifier)
         self._silver = SilverEnricher()
         self._rng = np.random.default_rng(seed)
         self._rtt = self.scenario.rtt_base
