@@ -1,0 +1,35 @@
+{
+  "viable": true,
+  "n_samples": 79115,
+  "baseline_error_rate": 0.2079734219269103,
+  "label_distribution": {
+    "NOMINAL": 69598,
+    "DEGRADING": 244,
+    "STRESSED": 9273
+  },
+  "held_out_accuracy_fitted": 0.8887718559089951,
+  "held_out_accuracy_heuristic": 0.003075626711607331,
+  "labels_order": [
+    "DEGRADING",
+    "NOMINAL",
+    "STRESSED"
+  ],
+  "confusion_matrix": [
+    [
+      0,
+      29,
+      44
+    ],
+    [
+      0,
+      20773,
+      107
+    ],
+    [
+      0,
+      2460,
+      322
+    ]
+  ],
+  "elapsed_s": 2250.7190948429998
+}

@@ -1,0 +1,42 @@
+{
+  "viable": true,
+  "n_samples": 80139,
+  "baseline_error_rate": 0.20830519918973667,
+  "held_out_balanced_accuracy_fitted": 0.6181465565285054,
+  "held_out_balanced_accuracy_heuristic": 0.3333333333333333,
+  "per_class_recall": {
+    "DEGRADING": 0.6081081081081081,
+    "NOMINAL": 0.6823017636767695,
+    "STRESSED": 0.5640297978006386
+  },
+  "label_distribution": {
+    "NOMINAL": 70494,
+    "DEGRADING": 247,
+    "STRESSED": 9398
+  },
+  "held_out_accuracy_fitted": 0.6682056401297729,
+  "held_out_accuracy_heuristic": 0.0030779469262124616,
+  "labels_order": [
+    "DEGRADING",
+    "NOMINAL",
+    "STRESSED"
+  ],
+  "confusion_matrix": [
+    [
+      45,
+      0,
+      29
+    ],
+    [
+      161,
+      14430,
+      6558
+    ],
+    [
+      417,
+      812,
+      1590
+    ]
+  ],
+  "elapsed_s": 2250.7141392669982
+}
