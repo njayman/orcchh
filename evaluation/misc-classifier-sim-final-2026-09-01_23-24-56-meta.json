@@ -1,0 +1,14 @@
+{
+  "domain": "simulation",
+  "n_samples": 27000,
+  "degrading_threshold": 0.8692218418469301,
+  "cv_balanced_accuracy_mean": 0.546,
+  "cv_balanced_accuracy_std": 0.02,
+  "cv_degrading_precision_mean": 0.103,
+  "cv_degrading_recall_mean": 0.22,
+  "cv_stressed_precision_mean": 0.332,
+  "cv_stressed_recall_mean": 0.689,
+  "cv_nominal_precision_mean": 0.935,
+  "cv_nominal_recall_mean": 0.729,
+  "source_data": "misc-classifier-sim-raw-data-2026-09-01_23-20-28.npz"
+}
