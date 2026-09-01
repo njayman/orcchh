@@ -6,9 +6,15 @@ All results below are the final run
 policy trained after both fixes described in Section 5 (100,000 steps for the
 undertraining fix, then a further 100,000 for the reward-gradient fix), with
 one run per policy, \textbf{max\_samples=1000}, real HuggingFace CPU
-inference throughout. Two earlier runs exist in the same directory and
-are referenced only where the contrast itself is the finding (the
-undertraining and reward-gradient bugs), never as the headline numbers.
+inference throughout. Two earlier runs are retained in the same
+directory for traceability and are cited only in Section 5, where the
+contrast itself is the finding, never as headline numbers here:
+\textbf{evaluation/2026-08-20\_06-40-51.json} records the undertrained
+policy at \textbf{fallback\_rate=1.000} in all three scenarios, and
+\textbf{evaluation/2026-08-20\_08-42-51.json} records the
+post-undertraining, pre-reward-gradient state whose degraded-network
+row supplies the 81.5\% escalation, 365.0 energy and 1067.8ms p95
+figures quoted there.
 
 \hypertarget{evaluation-strategy}{%
 \subsection{Evaluation strategy}\label{evaluation-strategy}}
@@ -539,10 +545,84 @@ recovered from that session's output and archived in
 \textbf{ablation-run-7-governance-review-2026-08-24.json}. Re-running it
 would require reconstructing the driver.
 
+\hypertarget{misc-classifier-refit}{%
+\subsection{MiscalibrationClassifier: a trained refit, not just a threshold}\label{misc-classifier-refit}}
+
+The seven-run ablation above (Table \ref{tab:ablation-results}) and Run
+7 both used the untrained \textbf{MiscalibrationClassifier}, which
+falls through to its fixed \textbf{\_fallback\_heuristic()} threshold
+(Section 5). After that ablation was complete, the classifier was
+genuinely fitted on non-circular data (Section 5) and re-evaluated
+against the identical \textbf{run\_ablation()} call, same sample size,
+same scenarios.
+
+\begin{longtable}{llrrrr}
+\caption{run1\_full, untrained heuristic vs.\ trained classifier, at the report's own \texttt{max\_samples=1000}.}\label{tab:misc-classifier-comparison}\\
+\toprule
+Scenario & Classifier & Escalation & p95 (ms) & Energy & Accuracy \\
+\midrule
+\endhead
+Steady & heuristic & 0.235 & 164.5 & 185.1 & 0.785 \\
+Steady & trained & 0.035 & 82.6 & 127.9 & 0.785 \\
+\addlinespace
+Bursty & heuristic & 0.195 & 146.9 & 194.3 & 0.780 \\
+Bursty & trained & 0.030 & 78.8 & 140.3 & 0.800 \\
+\addlinespace
+Degraded & heuristic & 0.245 & 889.2 & 193.0 & 0.805 \\
+Degraded & trained & 0.045 & 486.6 & 126.7 & 0.790 \\
+\addlinespace
+Held-out & heuristic & 0.265 & 3894.1 & 326.5 & 0.805 \\
+Held-out & trained & 0.040 & 680.8 & 151.9 & 0.790 \\
+\bottomrule
+\end{longtable}
+
+The effect is consistent across every scenario, not an artefact of one
+favourable run: escalation rate falls 82--85\% relative, p95 latency
+falls 44--82\%, energy falls 22--53\%, and accuracy stays within
+$\pm$0.015 either direction. \textbf{run4\_no\_reflect} shows the same
+pattern in every scenario, which points at \texttt{operational\_state}
+quality as the driver rather than the bidirectional loop. The
+mechanism is a threshold-overlap effect, not a claim that the trained
+classifier is a more accurate judge of ground truth: the heuristic's
+fixed STRESSED threshold (CPU\_thermal \textgreater{} 0.65) sits well
+inside the simulation's own synthetic ``stressed'' value range
+(\textbf{rng.uniform(0.6, 0.95)}), so it reports STRESSED, and reveals
+\texttt{calibration\_delta}/\texttt{error\_rate} to the policy, on a
+much larger share of requests than the trained classifier does. The
+policy was trained to treat that reveal as worth escalating on, so
+suppressing the heuristic's over-firing directly suppresses
+escalations. This is, in itself, dissertation-relevant evidence: it
+shows the Silver enrichment layer's behaviour is sensitive to how
+\texttt{operational\_state} is computed, and that a fixed threshold and
+a modestly-accurate trained classifier (54.6\% balanced accuracy,
+Section 5) can disagree often enough to move system-level metrics by
+double digits.
+
+The trained classifier is the default for every evaluation run past
+this section (\textbf{environment.py}, opt-out via
+\textbf{DEVMIND\_MISC\_CLASSIFIER\_PATH}). The seven-run ablation table
+above and Run 7 (Section 7.4) are left as originally generated, under
+the untrained heuristic, since regenerating every already-cited number
+in this report under the new default was not attempted before
+submission; this section exists precisely so that discrepancy is
+documented rather than silently present. Full methodology for both
+classifier attempts, the transfer-failure diagnosis for the first one,
+and the raw before/after log this table is drawn from are in
+\textbf{evaluation/misc-classifier-fit-2026-09-01.md} and
+\textbf{evaluation/misc-classifier-ablation-comparison-2026-09-01.txt}.
+
 \hypertarget{limitations}{%
 \subsection{Limitations}\label{limitations}}
 
 \begin{itemize}
+\item \textbf{The trained MiscalibrationClassifier's own accuracy is
+modest.} 54.6\% balanced accuracy and 33.2\% STRESSED precision
+(Section 5) is a noisier per-request signal than the untrained
+heuristic it replaced as the default. The large routing-behaviour
+change documented above (Section 7.5) is real and reproducible, but
+it demonstrates that the change matters, not that the trained
+classifier is unambiguously more correct than the heuristic it
+replaced.
 \item \textbf{Degraded-network over-escalation is reduced, not
 eliminated.} \textbf{run1\_full} still escalates 21.5\% of the time in a
 scenario where escalating provably cannot improve the SLA outcome,

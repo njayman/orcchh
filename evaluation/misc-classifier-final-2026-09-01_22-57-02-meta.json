@@ -1,0 +1,10 @@
+{
+  "degrading_threshold": 0.9050430695823463,
+  "model_path": "evaluation/misc-classifier-final-2026-09-01_22-57-02.joblib",
+  "n_training_samples": 80139,
+  "classes": [
+    "DEGRADING",
+    "NOMINAL",
+    "STRESSED"
+  ]
+}

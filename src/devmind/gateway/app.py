@@ -16,7 +16,7 @@ from pydantic import BaseModel
 
 from devmind.agent import AgenticOrchestrator, PPONetwork
 from devmind.cascade import CascadeController
-from devmind.edge import EdgeDevice, ResourceMonitor
+from devmind.edge import EdgeDevice, MiscalibrationClassifier, ResourceMonitor
 from devmind.medallion import DynamicMetricRegistry, GoldNormalizer, MetricSource, SilverEnricher
 from devmind.model_clients import CloudClient, DistilBERTEdge
 from devmind.tracing import setup_tracing
@@ -84,7 +84,7 @@ async def lifespan(app: FastAPI):
     task = os.environ.get("DEVMIND_TASK", "toxicity")
     edge_model = DistilBERTEdge(task=task)
     cloud_client = CloudClient(base_url=os.environ.get("DEVMIND_CLOUD_URL", "http://localhost:8001"))
-    edge = EdgeDevice()
+    edge = EdgeDevice(classifier=MiscalibrationClassifier.from_env())
     registry = DynamicMetricRegistry()
     registry.register(MetricSource("edge_context", "EdgeContextReport", lambda: edge.last_report or edge.emit_report(0.5)))
     registry.register(MetricSource("cloud_queue_depth", "int", lambda: cloud_client.inflight))

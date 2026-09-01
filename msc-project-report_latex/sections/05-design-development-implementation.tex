@@ -71,16 +71,46 @@ operating error buffer (60 sample rolling error buffer for ` error\_rate
 classifier}\label{honest-state-of-the-classifier}}
 
 \textbf{MiscalibrationClassifier} is a logistic regression over the
-stress vector and error rate, a dynamic combination with no set point.
-Though, \textbf{.fit()} is never called in the pipeline currently
-(verified by tracing every call site): each time, execution falls through
-to the fallback function \textbf{\_fallback\_heuristic()} which
-simply is a manually chosen threshold (CPU\_thermal \textgreater{} 0.85
-or error\_rate \textgreater{} 0.10 DEGRADING, CPU\_thermal
-\textgreater{} 0.65 or memory or disk \textgreater{} 0.80 STRESSED). Even
-if the architecture of the classifier can be considered an intelligent
-model rather than just a static threshold, fitting it on real labelled
-data remains unverified.
+stress vector and error rate. \textbf{.fit()} has now been called on
+real, non-circular data, in two separate domains, with labels derived
+only from real observed accuracy relative to an idle baseline (never
+from the fallback heuristic \textbf{\_fallback\_heuristic()} it
+replaces, which stays available as the untrained default: CPU\_thermal
+\textgreater{} 0.85 or error\_rate \textgreater{} 0.10 DEGRADING,
+CPU\_thermal \textgreater{} 0.65 or memory or disk \textgreater{} 0.80
+STRESSED).
+
+The first attempt trained on real hardware under genuine
+\textbf{multiprocessing}-induced CPU stress (80,139 samples,
+class-weighted logistic regression, DEGRADING gated behind a
+precision/recall-tuned probability threshold rather than plain argmax):
+68.0\% $\pm$ 2.6\% balanced accuracy, 64.4\% DEGRADING precision at
+66.4\% recall, 5-fold cross-validated. It does not transfer into the
+Gymnasium simulation: checked directly by counting predicted
+\texttt{operational\_state} across live simulated steps, it predicts
+NOMINAL on effectively 100\% of inputs, because its decision boundary
+was fit on real \textbf{psutil} value ranges that do not overlap the
+simulation's synthetic stress distribution.
+
+A second attempt retrained the identical methodology against the
+simulation's own synthetic stress formula instead (27,000 samples,
+same threshold-tuning approach): 54.6\% $\pm$ 2.0\% balanced accuracy,
+weaker than the real-hardware fit, particularly on STRESSED precision
+(33.2\%). The same direct check confirms this one does transfer,
+producing a genuinely non-degenerate state distribution that scales
+sensibly with scenario stress (2.75\% DEGRADING under steady traffic,
+5.15\% under the held-out scenario). This is the classifier every
+evaluation number past this section uses by default
+(\textbf{environment.py}, unless \textbf{DEVMIND\_MISC\_CLASSIFIER\_PATH}
+overrides it), and wiring it in changed routing behaviour substantially:
+escalation rate fell 82--85\% relative to the untrained heuristic across
+every scenario at statistically flat accuracy, because the heuristic's
+fixed 0.65 STRESSED threshold sits well inside the simulation's own
+``stressed'' value range and fires far more often than the trained
+classifier does. Full methodology, numbers, and the honest limitation
+that this behavioural improvement reflects suppressing the heuristic's
+false alarms rather than a demonstrably more accurate classifier, are
+in \textbf{evaluation/misc-classifier-fit-2026-09-01.md}.
 
 \hypertarget{deadmans-switch}{%
 \subsubsection{Deadman\textquotesingle s switch}\label{deadmans-switch}}

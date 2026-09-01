@@ -1,0 +1,10 @@
+{
+  "n_samples": 27000,
+  "baseline_error_rate": 0.19566666666666666,
+  "label_distribution": {
+    "NOMINAL": 22476,
+    "DEGRADING": 141,
+    "STRESSED": 4383
+  },
+  "elapsed_s": 377.2516761679981
+}

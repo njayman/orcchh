@@ -96,11 +96,16 @@ converged, synthetic queue/RTT/energy signals, serialised concurrent LLM
 diagnosis calls, and the per-request SLA
 check being a learned signal rather than a hard pre-dispatch gate). They
 are not repeated in full here. At the level of the project as a whole,
-five follow-on directions are the most immediate. First, fitting
-\textbf{MiscalibrationClassifier} on real labelled data rather than
-relying on its fallback heuristic (Section 5) would let the
-\texttt{operational\_state} classification improve with more edge
-deployments rather than staying fixed at a hand-set threshold. Second,
+five follow-on directions are the most immediate. First,
+\textbf{MiscalibrationClassifier} is now fitted on real, non-circular data
+in both domains it was ever deployed to (Section 5), and the
+simulation-domain fit is what every evaluation number in this report
+past that point uses by default. Its cross-validated accuracy is
+still modest, particularly for the STRESSED class (33\% precision), so
+the natural next step is not fitting it for the first time but
+improving what is already fitted: collecting a larger simulation-domain
+sample, or a richer feature set than the six-dimensional stress-plus-error-rate
+vector it currently sees, are the two most direct levers. Second,
 replacing the synthetic queue-depth and RTT signals in the Gymnasium
 simulation with measurements pulled from the live multi-region Docker
 deployment would close the one sim-to-real gap this project has not yet

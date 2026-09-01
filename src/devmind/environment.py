@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Any
 
 import gymnasium as gym
@@ -8,7 +10,7 @@ import numpy as np
 from gymnasium import spaces
 
 from devmind.dataset import load_task_dataset
-from devmind.edge import EdgeDevice
+from devmind.edge import EdgeDevice, MiscalibrationClassifier
 from devmind.medallion import DynamicMetricRegistry, GoldNormalizer, MetricSource, SilverEnricher
 from devmind.model_clients import BERTLargeCloud, DistilBERTEdge, InferenceResult
 from devmind.models import (
@@ -19,6 +21,19 @@ from devmind.models import (
     OperationalState,
     ResourceStress,
 )
+
+_SIM_CLASSIFIER_PATH = os.path.join(
+    os.path.dirname(__file__), "..", "..", "evaluation", "misc-classifier-sim-final-2026-09-01_23-24-56.joblib"
+)
+_SIM_CLASSIFIER_THRESHOLD = 0.8692218418469301
+
+
+@lru_cache(maxsize=1)
+def _default_sim_classifier() -> MiscalibrationClassifier:
+    # Trained on this simulation's own synthetic stress distribution -- see
+    # misc_classifier_fit_simulation.py and evaluation/misc-classifier-fit-2026-09-01.md.
+    # Cached process-wide: every InferenceGatewayEnv shares one loaded instance.
+    return MiscalibrationClassifier.load_pretrained(_SIM_CLASSIFIER_PATH, degrading_threshold=_SIM_CLASSIFIER_THRESHOLD)
 
 
 @dataclass
@@ -127,7 +142,15 @@ class InferenceGatewayEnv(gym.Env):
         self.silver_mode = silver_mode
         self._last_bronze: BronzeMetricSnapshot | None = None
         self._rng = np.random.default_rng(seed)
-        self._edge_device = EdgeDevice()
+        # Loaded once and reused across reset() calls, not reloaded from disk every
+        # episode. DEVMIND_MISC_CLASSIFIER_PATH still overrides; unset falls back to
+        # the classifier trained on this simulation's own synthetic stress
+        # distribution (misc_classifier_fit_simulation.py) rather than the plain
+        # heuristic -- wiring the classifier in cut escalation rate 82-85% across
+        # every scenario at equal accuracy, see
+        # evaluation/misc-classifier-fit-2026-09-01.md.
+        self._misc_classifier = MiscalibrationClassifier.from_env() or _default_sim_classifier()
+        self._edge_device = EdgeDevice(classifier=self._misc_classifier)
         self._silver = SilverEnricher()
         self._gold = GoldNormalizer()
         self._state = SimulationState()
@@ -218,7 +241,7 @@ class InferenceGatewayEnv(gym.Env):
     ) -> tuple[np.ndarray, dict[str, Any]]:
         super().reset(seed=seed)
         self._state = SimulationState()
-        self._edge_device = EdgeDevice()
+        self._edge_device = EdgeDevice(classifier=self._misc_classifier)
         self._silver = SilverEnricher()
         self._rng = np.random.default_rng(seed)
         self._rtt = self.scenario.rtt_base
