@@ -1,0 +1,4 @@
+-- steady (5s): acc=0.790 p95=72.5ms sla_viol=0.000 esc=0.010 energy=116.1
+-- bursty (5s): acc=0.795 p95=73.9ms sla_viol=0.000 esc=0.015 energy=138.8
+-- degraded_network (5s): acc=0.795 p95=460.1ms sla_viol=1.000 esc=0.035 energy=126.0
+-- held_out (5s): acc=0.785 p95=661.2ms sla_viol=1.000 esc=0.010 energy=143.3

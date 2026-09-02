@@ -1,0 +1,83 @@
+[
+  {
+    "policy": "run5a_static_silver",
+    "accuracy": 0.795,
+    "p95_latency_ms": 75.157946800411,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 0.025,
+    "energy_mj": 122.83884970190385,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "run5b_conditional_silver",
+    "accuracy": 0.79,
+    "p95_latency_ms": 66.65032297693142,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 0.0,
+    "energy_mj": 113.79957642669571,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "run5c_agent_driven_silver",
+    "accuracy": 0.805,
+    "p95_latency_ms": 77.70748037274852,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 0.035,
+    "energy_mj": 123.95859121580202,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "run5a_static_silver",
+    "accuracy": 0.785,
+    "p95_latency_ms": 82.3567681449153,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 0.015,
+    "energy_mj": 139.0031424956128,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "run5b_conditional_silver",
+    "accuracy": 0.79,
+    "p95_latency_ms": 73.52371931010413,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 0.005,
+    "energy_mj": 132.67700854217412,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "run5c_agent_driven_silver",
+    "accuracy": 0.79,
+    "p95_latency_ms": 75.98369486956139,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 0.02,
+    "energy_mj": 138.79582161454186,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "run5a_static_silver",
+    "accuracy": 0.79,
+    "p95_latency_ms": 457.93951138197673,
+    "sla_violation_rate": 1.0,
+    "escalation_rate": 0.03,
+    "energy_mj": 124.11053137969618,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "run5b_conditional_silver",
+    "accuracy": 0.79,
+    "p95_latency_ms": 455.8118111180171,
+    "sla_violation_rate": 1.0,
+    "escalation_rate": 0.005,
+    "energy_mj": 118.92575709724076,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "run5c_agent_driven_silver",
+    "accuracy": 0.8,
+    "p95_latency_ms": 869.3261437512774,
+    "sla_violation_rate": 1.0,
+    "escalation_rate": 0.045,
+    "energy_mj": 130.68193196327866,
+    "fallback_rate": 0.0
+  }
+]

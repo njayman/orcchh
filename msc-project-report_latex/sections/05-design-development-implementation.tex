@@ -353,12 +353,23 @@ roughly 85\% to roughly 20\% in every scenario, not only the
 degraded-network one, with SLA violations under bursty traffic falling
 from 65.5\% to 0.0\% and energy consumption dropping 50--80\% across the
 board, at a small, consistent accuracy cost of 0.5--2 percentage points
-per scenario. This is the model reported in the Evaluation and
-Discussion section. Full before/after figures per scenario are given
-there. The degraded-network over-escalation is reduced, not eliminated.
-The policy still escalates a fifth of the time in a scenario where
-escalating provably buys nothing, which is reported as a discussed
-limitation rather than a fully closed issue.
+per scenario. Full before/after figures per scenario are given in the
+Evaluation and Discussion section. At this point the degraded-network
+over-escalation was reduced but not eliminated: the policy still
+escalated a fifth of the time in a scenario where escalating provably
+buys nothing.
+
+This policy is not the one the Evaluation and Discussion section
+reports. The residual over-escalation turned out to be driven less by
+the reward function than by what the policy was being told about the
+edge. Once \textbf{MiscalibrationClassifier} was fitted (above) and made
+the simulation default, the policy was retrained from scratch for a
+further 100,000 steps in that environment, and degraded-network
+escalation fell again, from 21.5\% to 1.5\%. That retrained policy is
+what every number in Section 7 reports, and Section 7.5 separates how
+much of the improvement belongs to the trained classifier and how much
+to the retraining itself. The residual 1.5\% is still reported as a
+discussed limitation rather than a fully closed issue.
 
 \hypertarget{safety-fallback}{%
 \subsubsection{Safety fallback}\label{safety-fallback}}

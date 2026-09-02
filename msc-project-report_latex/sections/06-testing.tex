@@ -93,15 +93,29 @@ with a real client's numbers (Section 5's ``LLM governance review''):
 correctly escalated a \textbf{fine\_tune} decision to \textbf{train\_new}
 given a genuine large SLA-violation gap, with a coherent justification.
 \item \textbf{Multi-region Kubernetes deployment} (documented in
-\textbf{evaluation/multi-region-gke-live-traffic-test-2026-08-31.md}):
-the same three services deployed via real \textbf{kubectl}-managed
+\textbf{evaluation/multi-region-gke-live-traffic-test-2026-09-02.md}):
+the three services deployed via real \textbf{kubectl}-managed
 \textbf{Deployment}/\textbf{Service} manifests onto one small GKE cluster
 per region (a single cluster cannot span the ~250ms RTT to the Sydney
 region, so cross-region calls stay at the HTTP layer, as in the Docker
-path), using the current post-reward-gradient-fix policy rather than the
-policy in place for the 2026-08-05 Docker test. 13,729 requests, zero
-errors, zero pod restarts across the full session. This run also
-exercised Prometheus and Grafana as real Kubernetes workloads, scraping
+path), running the classifier-retrained policy (Section 7.5). 9,835
+requests, zero errors, zero pod restarts across the full session.
+Escalation rate live tracks the matching offline condition closely
+(\textbf{client\_babcock}: 2.5\% live against 3.5\% offline; the other
+clients within 0.2--0.7 points), differences explained by real network
+variance rather than a regression. The matching condition is the
+retrained policy paired with the untrained heuristic, not with the
+trained classifier: \textbf{gateway/app.py} reads a fitted classifier
+only when \textbf{DEVMIND\_MISC\_CLASSIFIER\_PATH} is set, which this
+deployment deliberately left unset, because that classifier was fitted
+on the simulation's synthetic stress distribution and has never been
+validated against real \textbf{psutil} readings (Section 7.5). The
+live gateway and the offline simulation therefore default to different
+classifiers, which is a disclosed scoping decision rather than an
+oversight, and Section 7.5's comparison is what makes it a defensible
+one: the retrained policy is nearly insensitive to which of the two
+feeds it. This deployment also exercised
+Prometheus and Grafana as real Kubernetes workloads, scraping
 \textbf{prometheus\_client} metrics across all three regions, and
 surfaced two further gaps a self-check running against local fakes
 cannot: \textbf{prometheus\_client}'s default \textbf{Histogram} buckets
@@ -110,8 +124,13 @@ millisecond-scale latency quantiles until explicit buckets were set, and
 the orchestrator's live-monitoring view, which tails a local log file,
 needed an explicit HTTP-forwarding path (\textbf{CascadeController}'s
 \textbf{action\_log\_url}) once the gateway and orchestrator are
-separate pods rather than processes sharing one host. Both
-fixed and re-verified against live cross-region traffic.
+separate pods rather than processes sharing one host. Both fixed and
+verified against live cross-region traffic. The GCP project's global
+\textbf{IN\_USE\_ADDRESSES} quota (8, already fully held by this
+deployment's own 8 services) means Jaeger cannot also acquire an
+external IP; the pod runs, but its UI and OTLP endpoint are not
+externally reachable under this project's current quota, a disclosed
+constraint rather than a silent gap.
 \end{itemize}
 
 \hypertarget{what-was-not-tested}{%

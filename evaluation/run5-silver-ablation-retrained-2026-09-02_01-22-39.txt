@@ -1,0 +1,21 @@
+
+=== RUN5 STEADY ===
+Policy               Acc      P95 Lat    SLA Viol   Esc%     Energy   Fallback
+--------------------------------------------------------------------------------
+run5a_static_silver  0.795    75.2       0.000      0.025    122.8    0.000   
+run5b_conditional_silver 0.790    66.7       0.000      0.000    113.8    0.000   
+run5c_agent_driven_silver 0.805    77.7       0.000      0.035    124.0    0.000   
+
+=== RUN5 BURSTY ===
+Policy               Acc      P95 Lat    SLA Viol   Esc%     Energy   Fallback
+--------------------------------------------------------------------------------
+run5a_static_silver  0.785    82.4       0.000      0.015    139.0    0.000   
+run5b_conditional_silver 0.790    73.5       0.000      0.005    132.7    0.000   
+run5c_agent_driven_silver 0.790    76.0       0.000      0.020    138.8    0.000   
+
+=== RUN5 DEGRADED_NETWORK ===
+Policy               Acc      P95 Lat    SLA Viol   Esc%     Energy   Fallback
+--------------------------------------------------------------------------------
+run5a_static_silver  0.790    457.9      1.000      0.030    124.1    0.000   
+run5b_conditional_silver 0.790    455.8      1.000      0.005    118.9    0.000   
+run5c_agent_driven_silver 0.800    869.3      1.000      0.045    130.7    0.000   

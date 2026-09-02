@@ -1,0 +1,470 @@
+[
+  {
+    "policy": "always_edge",
+    "accuracy": 0.795,
+    "p95_latency_ms": 73.5066394869963,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 0.0,
+    "energy_mj": 119.11475021961547,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "always_cloud",
+    "accuracy": 0.805,
+    "p95_latency_ms": 171.6339592476652,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 1.0,
+    "energy_mj": 420.0000000000013,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "static_tau_0.6",
+    "accuracy": 0.805,
+    "p95_latency_ms": 179.52621385051316,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 1.0,
+    "energy_mj": 420.0000000000013,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "static_tau_0.95",
+    "accuracy": 0.805,
+    "p95_latency_ms": 175.82872449933345,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 1.0,
+    "energy_mj": 420.0000000000013,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "random",
+    "accuracy": 0.78,
+    "p95_latency_ms": 167.51975399878575,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 0.475,
+    "energy_mj": 259.8214535837237,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "branchynet_entropy",
+    "accuracy": 0.805,
+    "p95_latency_ms": 179.9450736515064,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 0.975,
+    "energy_mj": 412.3957150368132,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "msdnet_budget",
+    "accuracy": 0.805,
+    "p95_latency_ms": 182.81115669782594,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 1.0,
+    "energy_mj": 420.0000000000013,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "edgebert_dvfs",
+    "accuracy": 0.805,
+    "p95_latency_ms": 183.54782560276362,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 1.0,
+    "energy_mj": 420.0000000000013,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "spinn_connectivity",
+    "accuracy": 0.805,
+    "p95_latency_ms": 193.2800027011035,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 1.0,
+    "energy_mj": 420.0000000000013,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "proteus_accuracy_floor",
+    "accuracy": 0.805,
+    "p95_latency_ms": 195.60203950026334,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 1.0,
+    "energy_mj": 420.0000000000013,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "splitwise_queue_energy",
+    "accuracy": 0.805,
+    "p95_latency_ms": 196.4586156999212,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 1.0,
+    "energy_mj": 420.0000000000013,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "routellm_learned_router",
+    "accuracy": 0.79,
+    "p95_latency_ms": 75.6184746951165,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 0.0,
+    "energy_mj": 117.5146049306851,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "nsga2_pareto_rule",
+    "accuracy": 0.805,
+    "p95_latency_ms": 177.68674534767342,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 1.0,
+    "energy_mj": 420.0000000000013,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "run1_full",
+    "accuracy": 0.785,
+    "p95_latency_ms": 75.78649675895039,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 0.01,
+    "energy_mj": 119.9617458632355,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "run2_confidence_only",
+    "accuracy": 0.805,
+    "p95_latency_ms": 175.37113064940058,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 1.0,
+    "energy_mj": 420.0000000000013,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "run3_calibration_delta",
+    "accuracy": 0.805,
+    "p95_latency_ms": 192.1703544025513,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 1.0,
+    "energy_mj": 420.0000000000013,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "run4_no_reflect",
+    "accuracy": 0.79,
+    "p95_latency_ms": 74.99524308294095,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 0.005,
+    "energy_mj": 118.33315863890107,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "always_edge",
+    "accuracy": 0.79,
+    "p95_latency_ms": 71.90005936438611,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 0.0,
+    "energy_mj": 130.99392778656417,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "always_cloud",
+    "accuracy": 0.805,
+    "p95_latency_ms": 628.3747396994556,
+    "sla_violation_rate": 0.595,
+    "escalation_rate": 1.0,
+    "energy_mj": 994.8000000000001,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "static_tau_0.6",
+    "accuracy": 0.805,
+    "p95_latency_ms": 626.4999912981568,
+    "sla_violation_rate": 0.605,
+    "escalation_rate": 1.0,
+    "energy_mj": 994.8000000000001,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "static_tau_0.95",
+    "accuracy": 0.805,
+    "p95_latency_ms": 633.9537974519625,
+    "sla_violation_rate": 0.595,
+    "escalation_rate": 1.0,
+    "energy_mj": 994.8000000000001,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "random",
+    "accuracy": 0.795,
+    "p95_latency_ms": 303.1897185505032,
+    "sla_violation_rate": 0.06,
+    "escalation_rate": 0.535,
+    "energy_mj": 375.2283035943575,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "branchynet_entropy",
+    "accuracy": 0.805,
+    "p95_latency_ms": 625.2735687522421,
+    "sla_violation_rate": 0.59,
+    "escalation_rate": 0.975,
+    "energy_mj": 987.0535589949694,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "msdnet_budget",
+    "accuracy": 0.805,
+    "p95_latency_ms": 625.4423025015595,
+    "sla_violation_rate": 0.6,
+    "escalation_rate": 1.0,
+    "energy_mj": 994.8000000000001,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "edgebert_dvfs",
+    "accuracy": 0.805,
+    "p95_latency_ms": 627.9054907511221,
+    "sla_violation_rate": 0.6,
+    "escalation_rate": 1.0,
+    "energy_mj": 994.8000000000001,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "spinn_connectivity",
+    "accuracy": 0.805,
+    "p95_latency_ms": 625.6868610004486,
+    "sla_violation_rate": 0.595,
+    "escalation_rate": 1.0,
+    "energy_mj": 994.8000000000001,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "proteus_accuracy_floor",
+    "accuracy": 0.805,
+    "p95_latency_ms": 629.6971335483787,
+    "sla_violation_rate": 0.6,
+    "escalation_rate": 1.0,
+    "energy_mj": 994.8000000000001,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "splitwise_queue_energy",
+    "accuracy": 0.805,
+    "p95_latency_ms": 640.7211078502427,
+    "sla_violation_rate": 0.615,
+    "escalation_rate": 1.0,
+    "energy_mj": 994.8000000000001,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "routellm_learned_router",
+    "accuracy": 0.79,
+    "p95_latency_ms": 78.71673740384861,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 0.0,
+    "energy_mj": 139.33731258292414,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "nsga2_pareto_rule",
+    "accuracy": 0.805,
+    "p95_latency_ms": 629.6182913480937,
+    "sla_violation_rate": 0.605,
+    "escalation_rate": 1.0,
+    "energy_mj": 994.8000000000001,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "run1_full",
+    "accuracy": 0.79,
+    "p95_latency_ms": 76.81441958448532,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 0.005,
+    "energy_mj": 136.4972357753086,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "run2_confidence_only",
+    "accuracy": 0.805,
+    "p95_latency_ms": 632.9435676492532,
+    "sla_violation_rate": 0.61,
+    "escalation_rate": 1.0,
+    "energy_mj": 994.8000000000001,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "run3_calibration_delta",
+    "accuracy": 0.805,
+    "p95_latency_ms": 636.1748823992267,
+    "sla_violation_rate": 0.61,
+    "escalation_rate": 1.0,
+    "energy_mj": 994.8000000000001,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "run4_no_reflect",
+    "accuracy": 0.795,
+    "p95_latency_ms": 73.40686391793749,
+    "sla_violation_rate": 0.0,
+    "escalation_rate": 0.01,
+    "energy_mj": 132.25793881700386,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "always_edge",
+    "accuracy": 0.79,
+    "p95_latency_ms": 454.588825437067,
+    "sla_violation_rate": 1.0,
+    "escalation_rate": 0.0,
+    "energy_mj": 114.25125058885338,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "always_cloud",
+    "accuracy": 0.805,
+    "p95_latency_ms": 941.7289524006264,
+    "sla_violation_rate": 1.0,
+    "escalation_rate": 1.0,
+    "energy_mj": 420.0000000000013,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "static_tau_0.6",
+    "accuracy": 0.805,
+    "p95_latency_ms": 938.6283175501376,
+    "sla_violation_rate": 1.0,
+    "escalation_rate": 1.0,
+    "energy_mj": 420.0000000000013,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "static_tau_0.95",
+    "accuracy": 0.805,
+    "p95_latency_ms": 939.1415900492575,
+    "sla_violation_rate": 1.0,
+    "escalation_rate": 1.0,
+    "energy_mj": 420.0000000000013,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "random",
+    "accuracy": 0.775,
+    "p95_latency_ms": 936.0007859504549,
+    "sla_violation_rate": 1.0,
+    "escalation_rate": 0.42,
+    "energy_mj": 242.15156139808727,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "branchynet_entropy",
+    "accuracy": 0.805,
+    "p95_latency_ms": 922.8227181998591,
+    "sla_violation_rate": 1.0,
+    "escalation_rate": 0.975,
+    "energy_mj": 412.23454377541685,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "msdnet_budget",
+    "accuracy": 0.79,
+    "p95_latency_ms": 453.1122550569005,
+    "sla_violation_rate": 1.0,
+    "escalation_rate": 0.0,
+    "energy_mj": 115.08720683568909,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "edgebert_dvfs",
+    "accuracy": 0.805,
+    "p95_latency_ms": 924.127449702064,
+    "sla_violation_rate": 1.0,
+    "escalation_rate": 1.0,
+    "energy_mj": 420.0000000000013,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "spinn_connectivity",
+    "accuracy": 0.79,
+    "p95_latency_ms": 451.7352513938329,
+    "sla_violation_rate": 1.0,
+    "escalation_rate": 0.0,
+    "energy_mj": 115.85237459503627,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "proteus_accuracy_floor",
+    "accuracy": 0.805,
+    "p95_latency_ms": 949.7521835501175,
+    "sla_violation_rate": 1.0,
+    "escalation_rate": 1.0,
+    "energy_mj": 420.0000000000013,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "splitwise_queue_energy",
+    "accuracy": 0.805,
+    "p95_latency_ms": 951.3335010486117,
+    "sla_violation_rate": 1.0,
+    "escalation_rate": 1.0,
+    "energy_mj": 420.0000000000013,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "routellm_learned_router",
+    "accuracy": 0.785,
+    "p95_latency_ms": 455.55907493875156,
+    "sla_violation_rate": 1.0,
+    "escalation_rate": 0.0,
+    "energy_mj": 117.07892606031642,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "nsga2_pareto_rule",
+    "accuracy": 0.805,
+    "p95_latency_ms": 948.3715525493608,
+    "sla_violation_rate": 1.0,
+    "escalation_rate": 1.0,
+    "energy_mj": 420.0000000000013,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "run1_full",
+    "accuracy": 0.79,
+    "p95_latency_ms": 452.27709080691443,
+    "sla_violation_rate": 1.0,
+    "escalation_rate": 0.015,
+    "energy_mj": 118.79937579059427,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "run2_confidence_only",
+    "accuracy": 0.805,
+    "p95_latency_ms": 942.5015162503769,
+    "sla_violation_rate": 1.0,
+    "escalation_rate": 1.0,
+    "energy_mj": 420.0000000000013,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "run3_calibration_delta",
+    "accuracy": 0.805,
+    "p95_latency_ms": 959.6188936977342,
+    "sla_violation_rate": 1.0,
+    "escalation_rate": 1.0,
+    "energy_mj": 420.0000000000013,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "run4_no_reflect",
+    "accuracy": 0.79,
+    "p95_latency_ms": 455.79517779598365,
+    "sla_violation_rate": 1.0,
+    "escalation_rate": 0.005,
+    "energy_mj": 117.55181439604546,
+    "fallback_rate": 0.0
+  },
+  {
+    "policy": "run6_held_out",
+    "accuracy": 0.79,
+    "p95_latency_ms": 664.0481107742711,
+    "sla_violation_rate": 1.0,
+    "escalation_rate": 0.005,
+    "energy_mj": 138.48137995597412,
+    "fallback_rate": 0.0
+  }
+]

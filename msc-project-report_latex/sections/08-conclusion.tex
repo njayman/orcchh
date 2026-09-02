@@ -20,15 +20,16 @@ ablation (Section 7).
 The headline result is the bursty-traffic comparison (Section 7.2):
 every static-threshold or always-cloud baseline that tries to preserve
 accuracy under a traffic burst pays for it with SLA violations in the
-64.5--66.0\% range, while the proposed system holds zero SLA violations
-at roughly 19\% of the escalation rate and 19\% of the energy cost of
-\textbf{always\_cloud}, within one percentage point of its accuracy.
-Under steady traffic, the result is more modest and reported as such: a
-simple static threshold is a reasonable, cheap choice when nothing is
-actually stressed, and the proposed system's advantage only appears once
-infrastructure is under load. Which is the condition the whole
-architecture was built for, not a condition chosen after the fact to
-flatter the result.
+59.5--60.5\% range, while the proposed system holds zero SLA violations
+at 0.5\% of the escalation rate and 14\% of the energy cost of
+\textbf{always\_cloud}, within one and a half percentage points of its
+accuracy. Under steady traffic the accuracy question is closer: a simple
+static threshold reaches 0.805 against the proposed system's 0.785, so
+two accuracy points are genuinely given up when nothing is stressed. It
+buys them at 3.5 times the energy, escalating every request rather than
+1\% of them. The distinctive claim is still the stressed condition, which
+is what the architecture was built for rather than a condition chosen
+after the fact to flatter the result.
 
 \hypertarget{revisiting-the-objectives}{%
 \subsection{Revisiting the objectives}\label{revisiting-the-objectives}}
@@ -58,15 +59,26 @@ Orchestration Layer entered scope in Week 7--8. A change traced back to
 specific supervisor feedback rather than presented as always having been
 the plan.
 
-Four of the six contributions claimed in Section 2.3 are backed by a
-specific measurement rather than only asserted. The Edge Context
+Five of the six contributions claimed in Section 2.3 are backed by a
+specific measurement rather than only asserted. The sixth is not, and
+that is reported here rather than left for a reader to find in Section
+7. The Edge Context
 Protocol's value is isolated in Ablation Run 3 (Section 7.3): adding
 \texttt{calibration\_delta} to a confidence-only threshold makes almost
 no difference, showing that the Protocol contributes by feeding a
 learned policy, not by adding one more input to an unchanged threshold.
-The bidirectional loop's value is isolated in Ablation Run 4, where
-disabling it costs 5.5 accuracy points under degraded network. The
-condition it exists to help with. The policy's learned response to
+The bidirectional loop is the contribution the final evaluation does
+not support. Under the pre-retrain policy, Ablation Run 4 showed that
+disabling the loop cost 5.5 accuracy points under degraded network,
+exactly the condition it was designed for. Under the retrained policy
+that gap closed: Run 4 now matches \textbf{run1\_full} to within half an
+accuracy point in every scenario (Section 7.3). The loop's measured
+value was real, but it was largest when the policy was least well
+adapted to its own inputs, and a policy retrained under a fitted
+classifier recovers most of what the loop had been supplying. The
+architectural case for closing the loop stands on Section 3's survey
+gap. The empirical case does not survive the retrain, and is not
+claimed. The policy's learned response to
 per-request SLA-remaining and predicted-RTT signals, shaped by the
 reward function's SLA term, is the mechanism behind the bursty-traffic
 result above. It is a learned preference, not a hard pre-dispatch gate,
@@ -110,14 +122,15 @@ replacing the synthetic queue-depth and RTT signals in the Gymnasium
 simulation with measurements pulled from the live multi-region Docker
 deployment would close the one sim-to-real gap this project has not yet
 validated directly, since inference latency itself is already measured
-on real hardware. Third, the residual 21.5\% over-escalation under
-sustained network degradation (Section 5, Section 7.6) suggests the
-reward function's latency term, though already fixed once during this
-project, may still under-penalise escalation specifically once the SLA
-is already unreachable by any routing choice. A scenario-conditioned
-reward term, evaluated the same way the existing reward-gradient fix was
-evaluated in this project, is the natural next experiment rather than a
-speculative one. Fourth, LiteLLM's and Portkey's routing
+on real hardware. Third, the residual 1.5\% over-escalation under
+sustained network degradation (Section 7.6) is small enough that the
+reward function is no longer the obvious place to attack it. Fitting the
+classifier cut this from 21.5\% without touching the reward at all
+(Section 7.5), so the remaining question is whether a scenario-conditioned
+reward term would close the last 1.5\% or merely trade it for a
+regression elsewhere. That is now a hypothesis worth testing rather than
+a diagnosed defect awaiting a known fix, and it should be evaluated the
+same way the reward-gradient fix was. Fourth, LiteLLM's and Portkey's routing
 strategies (Section 3) are compared here only qualitatively, against
 their own documentation. Turning that into an empirical row in Section 7
 requires first deciding, fairly to both sides, how a provider-routing
@@ -138,8 +151,8 @@ design work, since the signal already exists.
 The research question posed in Section 2.1 asked what a genuinely
 context-aware, closed-loop orchestration system buys over a static
 passive threshold. The bursty-traffic result (zero SLA violations
-against 64.5--66.0\% for every accuracy-preserving static baseline, at a
-fifth of the energy) is direct evidence for a specific answer: the gain
+against 59.5--60.5\% for every accuracy-preserving static baseline, at a
+seventh of the energy) is direct evidence for a specific answer: the gain
 is not uniform across every condition, and this report does not claim
 that it is, but it is largest when infrastructure is under the
 kind of stress that confidence-only systems have no way to see happening
