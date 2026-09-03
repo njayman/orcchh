@@ -1,32 +1,187 @@
 \hypertarget{methodology}{%
 \section{Methodology}\label{methodology}}
 
+\hypertarget{research-approach}{%
+\subsection{Research approach}\label{research-approach}}
+
 This work adopts a Design Science Research (DSR) approach (Hevner et
-al., 2004): apart from the observation of the routing problem presented
-in Section 2.1, the project required the design and testing of an
-artefact, the context-aware agentic gateway, that would carry the whole
-knowledge contribution. The build-evaluate DSR loop maps onto the
-project stages: phase P5 and parts of P6-P7, namely simulation and PPO
-offline training, and implementation of the infrastructure and
-individual parts respectively correspond to the build cycle. Phase P8,
-which involves comparing against five baselines, testing three scenario
-variants, and a seven-run ablation (Section 7.1),
-corresponds to the evaluate cycle. The product of this cycle is the
-gateway, whereas an accompanying knowledge contribution is the six-item
-list of features, benefits and capabilities set out in Section 2.3, each
-of which is verified against a specific evaluation output rather than
-only declared.
+al., 2004). The choice follows from the research question itself. Section~\ref{problem-statement} asks what an active, closed-loop orchestration system buys over a
+static passive threshold. That question can only be answered by building 
+the artefact and measuring it against the alternatives. It cannot be settled
+by observation or by survey because no surveyed system combines the properties
+being asked about (Section~\ref{literature-survey}). This is why DSR approach was choosen.
 
-DSR only defines a broad criterion for what is considered valid
-evidence. It does not set out the organisation of the weekly work tasks
-inside each phase. Managing weekly tasks is handled by Scrum sprints
-(Schwaber and Sutherland, 2020): each week\textquotesingle s sprint
-backlog is allocated to one particular component development or one
-evaluation run, and weekly log submission at Weeks 6, 9 and 12 is the
-evidence of each sprint review. The two approaches are complementary: if
-a checker wanted to look up a student\textquotesingle s learning outcome
-2 achievement ("critically select and assess the most suitable
-methodological processes"), the logbook entry for a given week can be
-traced through the DSR stage the work fed into, without the two accounts
-of how the work was done contradicting each other.
+DSR produces two outputs here. The artefact is the context-aware agentic
+gateway. The knowledge contribution is the six-item list of features,
+benefits and capabilities set out in Section~\ref{contributions}. Each item there is
+checked against a specific evaluation output, not just declared.
 
+The build-evaluate loop ran three times rather than once. The first
+trained policy was undertrained and was silently overridden by its own
+safety fallback. The second was corrected for that but had no reward
+gradient once an SLA was already violated. The third fitted the
+\textbf{MiscalibrationClassifier} on non-circular data and retrained the
+policy under it. Each cycle was triggered by an evaluation result rather
+than by a change of plan, which is the build-evaluate loop working as
+intended. All three are reported in Sections 5 and 7 rather than
+presented as a single clean run.
+
+\hypertarget{project-phases}{%
+\subsection{Project phases}\label{project-phases}}
+
+The project ran over fifteen weeks across ten phases. Table~\ref{tab:phases}
+lists the four that map onto the DSR build-evaluate loop. P1, P2, P6 and
+P10 are supervisor selection, the proposal, infrastructure setup and the
+poster/viva respectively. These are administrative or infrastructural phases
+in the loop and they are not repeated here.
+
+{\small\setlength{\tabcolsep}{4pt}
+\begin{longtable}{p{1.0cm}p{1.6cm}p{4.4cm}p{5.9cm}}
+\caption{Phases mapped to the DSR build-evaluate loop.}\label{tab:phases}\\
+\toprule
+Phase & Weeks & Name & What it produced \\
+\midrule
+\endhead
+P3 & 3--5 & Literature Review \& MDP Formulation & Fed the design: the
+survey in Section~\ref{literature-survey} and the MDP formulation in Section~\ref{aims-and-objectives} \\
+P4 & 5--6 & Architecture Design \& Scope Lock & Fed the design: the
+Bronze/Silver/Gold schema and the MCP skill interface \\
+P5 & 6--8 & Gymnasium Simulation \& PPO Training & Build cycle: the
+custom Gymnasium environment and the offline PPO agent \\
+P7 & 9--11 & Medallion Pipeline \& System Integration & Build cycle: the
+Bronze, Silver and Gold layers wired into the live request path \\
+P8 & 11--13 & Evaluation \& Benchmarking & Evaluate cycle: five core
+baselines, eight literature baselines, three scenarios, the seven-run
+ablation (Section~\ref{evaluation-strategy}) \\
+P9 & 9--14 & Dissertation Writing & Ran alongside P7 and P8 rather than
+after them \\
+\bottomrule
+\end{longtable}}
+
+P5 and P7 are the build cycle. P8 is the evaluate cycle, and its product
+is the gateway itself.
+
+\hypertarget{deviations-from-the-plan}{%
+\subsection{Deviations from the plan}\label{deviations-from-the-plan}}
+
+DSR expects the artefact to change under evaluation. Six planned choices
+were not carried through, and each is recorded here rather than left for
+a reader to notice.
+
+The proposal specified three independent runs per condition. The
+evaluation reports one run per policy per scenario (\textbf{n\_runs=1}). 
+Real HuggingFace CPU inference over 1,000 samples for every policy in every 
+scenario made three runs unaffordable inside P8's two weeks, and the choice 
+was to keep real inference rather than keep the repeat count.
+
+The proposal specified energy measurement through Intel RAPL. Energy is
+instead a simulated proxy computed in \textbf{environment.py}. RAPL was
+never wired in, so no energy number in this report is a hardware power
+measurement, and Section~\ref{evaluation-strategy} says so at the point the metric is defined.
+
+The proposal specified the PPO agent as a sidecar pod. Both live
+deployments instead co-locate the agent in the same process as the
+gateway. Neither is a literal sidecar, and Section~\ref{design-development-and-implementation}'s Deployment
+subsection states the distinction plainly.
+
+The proposal specified a TorchServe cloud pod and a Minikube deployment.
+The cloud pod is a FastAPI service, and the Kubernetes path is a
+three-region GKE deployment. The single-node EC2 and Minikube path is
+checked into the repository but has no live-test evidence (Section~\ref{testing}).
+
+The proposal specified F1 as the quality metric. Accuracy is reported
+instead, because every policy sees the identical capped test set in the
+identical order, so the class balance is held constant across all
+comparisons and accuracy separates the policies on the same evidence.
+
+\hypertarget{data-and-model-selection}{%
+\subsection{Data and model selection}\label{data-and-model-selection}}
+
+The dataset selected for this experiment is Jigsaw toxicity classification
+(\texttt{tasksource/jigsaw\_toxicity}, the \texttt{comment\_text} field
+against the \texttt{toxic} label). It was chosen because it has a real
+difficulty gradient. A weak and a strong model genuinely disagree on the
+harder comments, so the routing decision has something to be right or
+wrong about. A task where both models agree everywhere would make every
+routing policy look identical.
+
+The edge and cloud pair is \textbf{DistilBERT}
+(\texttt{newsmediabias/DistilBert\_Toxicity\_Classification}) and
+\textbf{BERT-large}
+(\texttt{AnonymousCS/bert-large-uncased-Twitter-toxicity}), both run on
+CPU. The pair was chosen so that the accuracy gap is real and the latency
+cost of escalating is also real. Escalation therefore carries a genuine
+trade-off rather than a free accuracy gain.
+
+Inference is real HuggingFace CPU inference throughout, so the accuracy figures 
+reflect how these two models actually behave on held-out samples. 
+The dataset is loaded once, shuffled under a fixed seed, and split 70/10/20 
+into train, validation and test. Each evaluation run draws from the test split
+at \textbf{max\_samples=1000}, and every policy sees the same capped set in
+the same order.
+
+Three metrics, namely Queue depth, RTT and energy are generated by the
+Gymnasium simulation. Simulating a saturated cloud queue or a sustained
+800ms RTT reproducibly on real infrastructure was not affordable, and a 
+simulated signal that can be held identical across every policy is worth
+more to a controlled comparison than a real signal that varies between runs. 
+
+\hypertarget{validity}{%
+\subsection{Validity}\label{validity}}
+
+\textbf{Internal validity.} Every comparison holds the models, the
+dataset and the traffic simulation fixed, and varies only the routing
+policy. A difference in the numbers can therefore only be attributed to
+the routing decision, a different dataset or different hardware. This is
+also the reason why the eight literature baselines are re-implementations
+run through this harness rather than figures quoted from their original papers.
+
+\textbf{External validity.} Training uses domain randomisation.
+\textbf{randomize\_scenario()} resamples twelve \textbf{ScenarioConfig}
+fields before every 2,048-step rollout, so the policy sees roughly 49
+distinct scenarios across a 100,000-step run rather than one fixed
+scenario. The held-out scenario (Ablation Run 6) is then set deliberately
+outside the range those rollouts sample, so a good result there is
+evidence that the policy learned the decision problem rather than the
+training scenarios.
+
+\textbf{Construct validity.} Four of the eight recorded metrics are terms
+in the reward function the policy was trained against. The other four,
+escalation rate, fallback rate, SLA margin and trust score are not used 
+in the reward function. The second group exists so that a good result can 
+be distinguished from the evaluation simply re-measuring the training objective.
+
+\textbf{Reliability.} Each policy is run once per scenario, so no
+confidence intervals are reported and no significance test is run. Small
+differences should be read as indicative rather than established. A gap
+of one to two accuracy points on 1,000 samples is within the range a
+single run cannot separate from noise, and this report does not treat
+such gaps as findings. The claims it does make rest on effects that are
+an order of magnitude larger, such as escalation falling from 100\% to
+0.5\% and SLA violations from 59.5\% to zero under bursty traffic. Those
+are not differences a repeat run would plausibly reverse.
+
+\hypertarget{development-method-and-ethics}{%
+\subsection{Development method and
+ethics}\label{development-method-and-ethics}}
+
+DSR sets a broad criterion for what counts as valid evidence. It says
+nothing about how weekly work should be organised inside each phase. That
+is handled by Scrum (Schwaber and Sutherland, 2020), adapted for a single
+developer. Sprints are fixed at one week. Each sprint opens with planning
+that ties a concrete goal to the current project phase and closes with a
+sprint review. Supervisor meetings run weekly, alternating between
+mid-sprint check-ins and end-of-sprint reviews. Daily standups are
+replaced by a personal daily log entry, since there is no team to
+synchronise. Each week's backlog is allocated to one component or one
+evaluation run, and the logbook submissions at Weeks 6, 9, 12 and 15
+serve as the evidence for each sprint review.
+
+The ethics form was completed and submitted on BREO during P2 (Weeks
+2--3). The project involves no human participants and collects no
+personal data. Jigsaw is a public dataset used under its existing terms,
+and no new data was collected or redistributed. All models are
+pre-trained checkpoints obtained from the HuggingFace Hub and used
+without modification. The synthetic clients in Ablation Run 7
+(\textbf{client\_nhs}, \textbf{client\_babcock} and the others) are
+fictional load profiles, not real organisations or their data.

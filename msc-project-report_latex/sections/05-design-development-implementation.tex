@@ -13,26 +13,105 @@ Figure~\ref{fig:architecture} gives the seven components and how a
 single request moves through them. The subsections below describe each
 component in turn.
 
+\hypertarget{requirements-analysis}{%
+\subsection{Requirements Analysis}\label{requirements-analysis}}
+
+The seven components in Figure~\ref{fig:architecture} answers a specific requirement.
+These requirement comes from the structural gaps named in Section~\ref{problem-statement} (a
+limited signal set, a static pipeline, a forward-only loop, and the two
+failures these compound into), and it is confirmed against the
+literature in Section~\ref{literature-survey}. Table~\ref{tab:functional-requirements} and
+Table~\ref{tab:nonfunctional-requirements} make that derivation
+explicit. Each requirement traces back to the gap that motivated it. It
+also traces forward to the component built to satisfy it, and forward
+again to the evaluation evidence in Sections 6--7 that checks whether
+it actually did.
+
+{\small\setlength{\tabcolsep}{4pt}
+\begin{longtable}{p{0.8cm}p{5.0cm}p{3.3cm}p{4.4cm}}
+\caption{Functional requirements, traced from the gaps in Section~\ref{problem-statement}
+to the component that satisfies each one and the evidence that verifies
+it.}\label{tab:functional-requirements}\\
+\toprule ID & Requirement & Component(s) & Verified by \\ \midrule
+\endfirsthead
+\toprule ID & Requirement & Component(s) & Verified by \\ \midrule
+\endhead
+FR1 & Route each request using more than confidence alone: at minimum
+cloud queue depth, RTT, SLA remaining and edge CPU load & Edge Context
+Protocol; Dynamic Medallion (Gold vector) & Ablation Run 2
+(confidence-only) vs.\ Run 1, Section~\ref{ablation} \\
+FR2 & The edge device must self-report its own operational health
+(resource stress, calibration state, error rate) rather than being
+treated as a passive endpoint & Edge Context Protocol & Ablation Run 3,
+Section~\ref{ablation} \\
+FR3 & The pipeline must reveal a different feature set depending on the
+edge's current operational state
+& Dynamic Medallion (Silver conditional enrichment); MCP Skill Interface
+& Ablation Run 5, Section~\ref{evaluation-and-discussion} \\
+FR4 & The outcome of a routing decision must feed back into the edge's
+own state for the next request &
+Bidirectional Loop & Ablation Run 4, Section~\ref{ablation} \\
+FR5 & A per-request SLA budget must be checked before dispatch & Cascade Controller;
+Gold \textbf{sla\_remaining} slot & \textbf{sla\_violation\_rate} /
+\textbf{sla\_margin\_ms} columns throughout Section~\ref{evaluation-and-discussion} \\
+FR6 & The routing policy must be deployable as a frozen artefact & PPO Agent (frozen
+\textbf{ppo\_policy.pt}) & Docker/GKE live multi-region traffic tests,
+Section~\ref{deployment} \\
+FR7 & Onboarding a new client or scenario must be a governed
+reuse/fine-tune/train-new decision & Policy
+Orchestration Layer & Ablation Run 7, Section~\ref{ablation-run-7} \\
+\bottomrule \end{longtable}}
+
+{\small\setlength{\tabcolsep}{4pt}
+\begin{longtable}{p{0.9cm}p{5.2cm}p{3.2cm}p{4.2cm}}
+\caption{Non-functional requirements, traced the same way as
+Table~\ref{tab:functional-requirements}.}\label{tab:nonfunctional-requirements}\\
+\toprule ID & Requirement & Component(s) & Verified by \\ \midrule
+\endfirsthead
+\toprule ID & Requirement & Component(s) & Verified by \\ \midrule
+\endhead
+NFR1 & Perception (Bronze $\to$ Silver $\to$ Gold $\to$
+\textbf{decide()}) must stay a small fraction of end-to-end request
+latency & All three Medallion layers; MCP Skill
+Interface & \textbf{benchmark\_mcp\_perception.py}: 0.57ms mean / 0.97ms
+p95 against 23.9ms mean edge inference (Section~\ref{design-development-and-implementation}) \\
+NFR2 & The system must fail safe under distributional shift or policy
+uncertainty rather than trust a possibly-wrong learned action & PPO
+Agent's OOD/entropy fallback gate (\textbf{is\_ood()}, entropy $>0.9$)
+& Ablation Run 6 (held-out scenario), Section~\ref{baselines-and-scenarios} \\
+NFR3 & Edge unreachability must be detected and handled independently
+of the learned policy, since a policy that has never seen an absent
+edge cannot be trusted to reason about it & Deadman's switch
+(\textbf{mark\_unreachable()}, \textbf{stale\_timeout\_s}) & Per-request
+timeout and heartbeat-staleness paths, Section~\ref{edge-context-protocol} \\
+NFR4 & Governance-time decisions (reuse/fine-tune/train-new, threshold
+recalibration, LLM diagnosis) must never execute inside the per-request
+path & Policy Orchestration Layer's explicit offline boundary &
+Governance-time-only framing and the \textbf{\_log\_decision()}
+audit trail (\textbf{orchestrator\_decisions.jsonl}), Section~\ref{policy-orchestration-layer} \\
+NFR5 & No feature ships without a traceable link to one of the seven
+locked components & All seven; this table is the trace & Policy
+Orchestration Layer's scope-entry record (Week 7--8, traced to
+supervisor feedback), Section~\ref{conclusion} \\
+\bottomrule \end{longtable}}
+
 \hypertarget{edge-context-protocol}{%
 \subsection{Edge Context Protocol}\label{edge-context-protocol}}
 
 \hypertarget{design}{%
 \subsubsection{Design}\label{design}}
 
-\textbf{ResourceStress} encodes edge health as five independent fields
-(cpu, gpu, memory, disk\_io, thermal, each in {[}0,1{]}) rather than one
-aggregate load number. The reason this is a design decision and not just
-a data-modelling convenience: CPU and thermal stress degrade confidence
-calibration (the model becomes confidently wrong), while memory and disk
-pressure degrade \_latency\_ (an SLA risk). A single scalar cannot
-separate a slow-but-correct edge from a fast-but-wrong one. EdgeBERT
-(Tambe et al., 2021) is the only system in Section 3 that reads any
-on-device resource state at all, and even it is restricted to its own
-chip's entropy/voltage-frequency envelope with no per-resource
+\textbf{ResourceStress} records edge health as five separate numbers:
+cpu, gpu, memory, disk\_io, and thermal, each between 0 and 1. CPU and thermal stress degrade confidence
+calibration, so the model becomes confidently wrong. Memory and disk
+pressure degrade \emph{latency} instead, which is an SLA risk. A single
+scalar cannot separate a slow-but-correct edge from a fast-but-wrong
+one. EdgeBERT (Tambe et al., 2021) is the only system in Section~\ref{literature-survey} that
+reads any on-device resource state at all, and even it is restricted to
+its own chip's entropy/voltage-frequency envelope, with no per-resource
 breakdown. BranchyNet, MSDNet, RouteLLM, GreenServ, and both production
-gateways read no device resource state whatsoever. The five-field design
-is a direct response to that gap, not an arbitrary choice of
-granularity.
+gateways read no device resource state at all. The five-field design is
+a direct response to that gap.
 
 \hypertarget{implementation}{%
 \subsubsection{Implementation}\label{implementation}}
@@ -43,103 +122,106 @@ readings from device resources into a self-report of its condition.
 parameters of the device (cpu\_percent, virtual\_memory().percent,
 disk\_usage().percent) via \textbf{psutil}. `thermal` comes from
 `psutil.sensors\_temperatures()` and is scaled down assuming a maximum
-operating temperature of 85\textdegree{}C. In cases where there is no sensor for
-certain readings, the system falls back to 0.0 (this could be for example a cloud
-VM, which does not have sensors). \textbf{edgeDevice.apply\_stress()}
-lets the offline simulator inject synthetic values over the same code
-path that \textbf{emit\_report()} consumes, thereby making the handling
-of simulated and real stress completely uniform.
+operating temperature of 85\textdegree{}C. If there is no sensor for a certain reading, the system falls back to
+0.0. A cloud VM is one example of a device with no sensors.
+\textbf{edgeDevice.apply\_stress()} lets the offline simulator inject
+synthetic values over the same code path that \textbf{emit\_report()}
+consumes. This makes the handling of simulated and real stress
+completely uniform.
 
 \textbf{EdgeDevice.emit\_report()} is the core of the protocol. Besides
-an inference\textquotesingle s raw confidence, it computes a calibrated
-confidence by calling \textbf{compute\_calibration\_delta()}, which
-applies temperature scaling (Guo et al., 2017). The temperature term is
-itself a function of the sensed stress (`temp = 1.0 + 0.5*cpu +
-0.3*thermal`), so higher stress pulls the calibrated confidence closer
-to 0.5. This directly targets the failure mode Guo et al. document and
-the introduction's problem statement opens with: a model's raw softmax
-confidence stays high while the prediction underneath degrades under
-load. BranchyNet and MSDNet both read raw softmax confidence/entropy as
-if it were trustworthy at every stress level, with no correction term at
-all, which is the gap this calibration step exists to close. It keeps an
-operating error buffer (60 sample rolling error buffer for ` error\_rate
-`) and classifies \textbf{operational\_state} by calling
+an inference's raw confidence, it computes a calibrated confidence by
+calling \textbf{compute\_calibration\_delta()}, which applies
+temperature scaling (Guo et al., 2017). The temperature term is itself
+a function of the sensed stress (`temp = 1.0 + 0.5*cpu + 0.3*thermal`).
+So higher stress pulls the calibrated confidence closer to 0.5. This
+directly targets the failure mode Guo et al. describe, and the one the
+introduction's problem statement opens with. A model's raw softmax
+confidence stays high while the prediction underneath it degrades under
+load. BranchyNet and MSDNet both read raw softmax confidence or entropy
+as if it were trustworthy at every stress level, with no correction
+term at all. That is the exact gap this calibration step closes.
+\textbf{emit\_report()} also keeps an operating error buffer (a
+60-sample rolling buffer for `error\_rate`) and classifies
+\textbf{operational\_state} by calling
 \textbf{MiscalibrationClassifier.predict()}.
 
-\hypertarget{honest-state-of-the-classifier}{%
-\subsubsection{Honest state of the
-classifier}\label{honest-state-of-the-classifier}}
+\hypertarget{classifier-status}{%
+\subsubsection{Classifier status}\label{classifier-status}}
 
 \textbf{MiscalibrationClassifier} is a logistic regression over the
 stress vector and error rate. \textbf{.fit()} has now been called on
-real, non-circular data, in two separate domains, with labels derived
-only from real observed accuracy relative to an idle baseline (never
-from the fallback heuristic \textbf{\_fallback\_heuristic()} it
-replaces, which stays available as the untrained default: CPU\_thermal
-\textgreater{} 0.85 or error\_rate \textgreater{} 0.10 DEGRADING,
-CPU\_thermal \textgreater{} 0.65 or memory or disk \textgreater{} 0.80
-STRESSED).
+real, non-circular data, in two separate domains. Its labels come only
+from real observed accuracy relative to an idle baseline, never from
+the fallback heuristic \textbf{\_fallback\_heuristic()} it replaces.
+That heuristic still stays available as the untrained default. It fires
+DEGRADING when CPU\_thermal \textgreater{} 0.85 or error\_rate
+\textgreater{} 0.10, and STRESSED when CPU\_thermal \textgreater{} 0.65
+or memory or disk \textgreater{} 0.80.
 
-The first attempt trained on real hardware under genuine
-\textbf{multiprocessing}-induced CPU stress (80,139 samples,
-class-weighted logistic regression, DEGRADING gated behind a
-precision/recall-tuned probability threshold rather than plain argmax):
-68.0\% $\pm$ 2.6\% balanced accuracy, 64.4\% DEGRADING precision at
-66.4\% recall, 5-fold cross-validated. It does not transfer into the
-Gymnasium simulation: checked directly by counting predicted
-\texttt{operational\_state} across live simulated steps, it predicts
-NOMINAL on effectively 100\% of inputs, because its decision boundary
-was fit on real \textbf{psutil} value ranges that do not overlap the
-simulation's synthetic stress distribution.
+The first attempt trained on real hardware, under genuine
+\textbf{multiprocessing}-induced CPU stress. It used 80,139 samples and
+a class-weighted logistic regression, with DEGRADING gated behind a
+precision/recall-tuned probability threshold rather than plain argmax.
+This gave 68.0\% $\pm$ 2.6\% balanced accuracy, and 64.4\% DEGRADING
+precision at 66.4\% recall, 5-fold cross-validated. But it does not
+transfer into the Gymnasium simulation. This was confirmed after
+counting predicted \texttt{operational\_state} across live simulated
+steps. It predicts NOMINAL on 100\% of inputs because its
+decision boundary was fit on real \textbf{psutil} value ranges that do
+not overlap the simulation's synthetic stress distribution.
 
-A second attempt retrained the identical methodology against the
-simulation's own synthetic stress formula instead (27,000 samples,
-same threshold-tuning approach): 54.6\% $\pm$ 2.0\% balanced accuracy,
-weaker than the real-hardware fit, particularly on STRESSED precision
-(33.2\%). The same direct check confirms this one does transfer,
-producing a genuinely non-degenerate state distribution that scales
-sensibly with scenario stress (2.75\% DEGRADING under steady traffic,
-5.15\% under the held-out scenario). This is the classifier every
-evaluation number past this section uses by default
-(\textbf{environment.py}, unless \textbf{DEVMIND\_MISC\_CLASSIFIER\_PATH}
-overrides it), and wiring it in changed routing behaviour substantially:
-escalation rate fell 82--85\% relative to the untrained heuristic across
-every scenario at statistically flat accuracy, because the heuristic's
-fixed 0.65 STRESSED threshold sits well inside the simulation's own
-``stressed'' value range and fires far more often than the trained
-classifier does. Full methodology, numbers, and the honest limitation
-that this behavioural improvement reflects suppressing the heuristic's
-false alarms rather than a demonstrably more accurate classifier, are
-in \textbf{evaluation/misc-classifier-fit-2026-09-01.md}.
+In the second attempt, it was retrained with the same methodology. The
+simulation's own synthetic stress formula was used in the second attempt.
+It used 27,000samples and the same threshold-tuning approach. This gave 
+54.6\% $\pm$ 2.0\% balanced accuracy, weaker than the real-hardware fit, 
+particularly on STRESSED precision (33.2\%). The same direct check confirms
+this one does transfer. It produces a genuinely non-degenerate state
+distribution that rises with scenario stress the way it should. It also shows
+2.75\% DEGRADING under steady traffic. Under the held-out scenario, it rises 
+to 5.15\%. Every evaluation after this section uses this is the classifier 
+by default (\textbf{environment.py}, unless \textbf{DEVMIND\_MISC\_CLASSIFIER\_PATH} 
+overrides it). Wiring it in also changes routing behaviour by a lot. The policy 
+escalated far more often Under the old heuristic. With the trained classifier, 
+escalation dropped to between 15\% and 18\% of that old rate in every scenario,
+while accuracy stayed about the same. Section~\ref{misc-classifier-refit} repeats
+the same swap against the retrained policy, where the gap is much
+smaller, and separates the two effects. That is because the heuristic's fixed 0.65
+STRESSED threshold sits well inside the simulation's own ``stressed''
+value range, and fires far more often than the trained classifier does.
+Full methodology and numbers are in
+\textbf{evaluation/misc-classifier-fit-2026-09-01.md}. It also states a
+limitation: this behavioural improvement reflects suppressing the
+heuristic's false alarms, not a demonstrably more accurate classifier.
 
 \hypertarget{deadmans-switch}{%
 \subsubsection{Deadman\textquotesingle s switch}\label{deadmans-switch}}
 
-\textbf{EdgeDevice.is\_unreachable} is defined as a property. It will
-remain unreachable until there is a \textbf{\_last\_seen} and stays
-unreachable once `time.monotonic() - \_last\_seen \textgreater{}
-stale\_timeout\_s`. Two independent paths trigger it, directly calling
-\textbf{mark\_unreachable()}, usually when the edge inference call times
-out of itself or raises an error, or passive stale state if neither a
-request nor a \textbf{heartbeat()} updates \textbf{\_last\_seen} within
-the timeout window. \textbf{last\_report} overwrites the stored
-\textbf{operational\_state} to \textbf{UNREACHABLE} upon reading
-whenever \textbf{is\_unreachable} is true, guaranteeing no stale values
-being served as current.
+\textbf{EdgeDevice.is\_unreachable} is defined as a property. It stays
+unreachable until there is a \textbf{\_last\_seen}, and again once
+`time.monotonic() - \_last\_seen \textgreater{} stale\_timeout\_s`. Two
+independent paths can trigger it. One calls \textbf{mark\_unreachable()}
+directly, usually when the edge inference call times out or raises an
+error. The other is passive. It fires if neither a request nor a
+\textbf{heartbeat()} updates \textbf{\_last\_seen} within the timeout
+window. \textbf{last\_report} overwrites the stored
+\textbf{operational\_state} to \textbf{UNREACHABLE} whenever
+\textbf{is\_unreachable} is true. This guarantees no stale values are
+ever served as current.
 
 The live gateway (`gateway/app.py`) executes a
 \textbf{\_heartbeat\_loop} at 2-second intervals, separate from the
 request traffic.
 
-None of the eleven systems in Section 3, academic or commercial, has a
+None of the eleven systems in Section~\ref{literature-survey}, academic or commercial, has a
 counterpart to this. Confidence- and budget-only cascades have no
 concept of edge liveness at all. LiteLLM's cooldown and Portkey's
 failover both react to a request that has already failed, not to a
-device that has gone silent without failing anything yet. The
-distinction matters operationally: a deadman's switch turns "no data"
-into an explicit state (\textbf{UNREACHABLE}) the routing decision can
-act on before the next request arrives, rather than only after one times
-out.
+device that has gone silent without failing anything yet. This
+distinction matters in practice. A deadman's switch transforms
+``no data'' into a clear state of \textbf{UNREACHABLE}. The 
+routing decision can respond to such state even before the next 
+request. It doesn't have to wait for the request to time out first.
 
 \hypertarget{dynamic-medallion-pipeline}{%
 \subsection{Dynamic Medallion
@@ -160,64 +242,57 @@ Figure~\ref{fig:medallion} shows the flow from raw registered sources
 \subsubsection{Bronze}\label{bronze}}
 
 \textbf{DynamicMetricRegistry} is a dictionary of
-\textbf{MetricSource(name schema\_type, read\_fn)} entries with various
-names. \textbf{snapshot()} gets data from the registered sources and
-finds the corresponding \textbf{BronzeMetricSnapshot} by matching names
-via pattern. Introducing a new source is \textbf{registry.
-register(...)}, and there will not be any code changes to
+\textbf{MetricSource(name, schema\_type, read\_fn)} entries.
+\textbf{snapshot()} pulls data from the registered sources and matches
+names to build the \textbf{BronzeMetricSnapshot}. Adding a new source
+only needs \textbf{registry.register(...)}. It needs no code changes to
 `\textbf{SilverEnricher}` or \textbf{GoldNormalizer}.
-\textbf{cloud\_queue\_depth} and \textbf{rtt\_ms} values can be obtained
-from the real HTTP client by connecting \textbf{cloud\_client.inflight}
-/ \textbf{cloud\_client.rtt\_ms} in the live gateway as measured values
-from the actual HTTP client to the cloud pod. Do not use static
-constants that are hardcoded.
+\textbf{cloud\_queue\_depth} and \textbf{rtt\_ms} come from the real
+HTTP client in the live gateway, through \textbf{cloud\_client.inflight}
+and \textbf{cloud\_client.rtt\_ms}, as actual measured values from the
+HTTP client to the cloud pod.
 
-Every system surveyed in Section 3 hardcodes its one signal at design
+Every system surveyed in Section~\ref{literature-survey} hardcodes its one signal at design
 time (BranchyNet's entropy threshold, MSDNet's computational budget,
-PROTEUS's accuracy target, LiteLLM's and Portkey's operator-set weights)
-so adding a new kind of signal means changing the routing algorithm
-itself. A registry entry adds a value without touching
+PROTEUS's accuracy target, LiteLLM's and Portkey's operator-set
+weights). So adding a new kind of signal means changing the routing
+algorithm itself. A registry entry adds a value without touching
 \textbf{SilverEnricher} or \textbf{GoldNormalizer}, which is the direct
-answer to that limitation, though within a caveat this report states
-elsewhere rather than glossing over: extending Gold's own 13-slot layout
-for a new \emph{kind} of signal still means editing
-\textbf{snapshot()}'s match-case, so the registry is dynamic at the
-value level, not at the schema level.
+answer to that limitation. But there is a caveat, extending Gold's 13-slot layout for a new kind of signal still means editing \textbf{snapshot()}'s match-case. So the registry is dynamic at the value level.
 
 \hypertarget{silver}{%
 \subsubsection{Silver}\label{silver}}
 
-\textbf{SilverEnricher.enrich()} Computes predictive features:
-\textbf{predicted\_queue\_wait\_ms} is an EWMA (alpha=0.3) of drain rate
-(`cloud\_queue\_depth / sla\_remaining\_ms`) multiplied back into
-\textbf{sla\_remaining\_ms}, and \textbf{predicted\_rtt\_ms} is an EWMA
-(alpha=0.2) of sampled RTT. \textbf{sla\_violation\_predicted} compares
-the predicted wait + RTT against the SLA budget, not the last raw
-sample.
+\textbf{SilverEnricher.enrich()} computes two predictive features. One is
+\textbf{predicted\_queue\_wait\_ms}, which is an EWMA (alpha=0.3) of the
+drain rate, \textbf{cloud\_queue\_depth} divided by
+\textbf{sla\_remaining\_ms}, then multiplied back into
+\textbf{sla\_remaining\_ms}. The other is \textbf{predicted\_rtt\_ms}, an
+EWMA (alpha=0.2) of sampled RTT.
 
-\textbf{Honestly reported: this is a computed signal, not yet a gate.}
-Tracing every read of \textbf{sla\_violation\_predicted} across the
-codebase confirms it is set once, here, and never read again by
-\textbf{GoldNormalizer}, \textbf{AgenticOrchestrator.decide()}, or
-\textbf{CascadeController.process()}. What actually reaches the routing
-decision is \textbf{sla\_remaining} and \textbf{predicted\_rtt} as two
-of the 13 Gold slots, which the PPO policy learns to weigh via the
-reward function's SLA term (Section 7.1). A per-request \emph{signal}
-the policy can act on, not a deterministic pre-dispatch \emph{gate} that
-blocks an escalation \textbf{sla\_violation\_predicted} would flag. The
-one hard, rule-based gate in the whole system is narrower and lives in
-the safety fallback, not here: \textbf{\_resolve\_fallback()}'s
+\textbf{This is a computed signal.}
+Tracing every read of \textbf{sla\_violation\_predicted} across the code 
+confirms that it is set here and not read by \textbf{GoldNormalizer},
+ \textbf{AgenticOrchestrator.decide()}, or \textbf{CascadeController.process()}.
+\textbf{sla\_remaining} and \textbf{predicted\_rtt} are the two Gold slot vectors
+that reacher the routing decisions. The PPO policy is trained using the reward 
+function's SLA terms. That's why it is a single-request \emph{signal} through
+which the agent is supposed to learn to act, not a deterministic barrier 
+that blocks an escalation in the way that \textbf{sla\_violation\_predicted}
+would do. The one hard, rule-based gate in the whole system is narrower, and 
+it lives in the safety fallback. \textbf{\_resolve\_fallback()}'s
 \textbf{queue\_backed\_up} guard (below) routes to edge when predicted
-queue wait exceeds a ceiling, but only when the fallback path itself is
-triggered (entropy or OOD), not on every request. Wiring
-\textbf{sla\_violation\_predicted} into \textbf{decide()} as an
-unconditional pre-dispatch check, the harder guarantee the project
-proposal originally described, remains open work, not a claimed result.
+queue wait exceeds a ceiling. But is does not guard in not on every request.
+It activates only when the fallback path itself is triggered (entropy or OOD).
+Wiring \textbf{sla\_violation\_predicted} into \textbf{decide()} as an
+unconditional pre-dispatch check would be the harder guarantee the
+project proposal originally described. That remains open work, not a
+claimed result.
 
 Enrichment is conditional on \textbf{operational\_state},
 \textbf{calibration\_delta} is only populated when \textbf{STRESSED} or
 \textbf{DEGRADING}, \textbf{error\_rate} only when \textbf{DEGRADING}.
-Otherwise both are left \textbf{None}. When the edge is
+The default value is \textbf{None}. When the edge is
 \textbf{UNREACHABLE}, \textbf{stale=True} is set, which zero-masks the
 resource-stress slots downstream rather than serving a stale last-known
 reading.
@@ -225,18 +300,35 @@ reading.
 \hypertarget{gold}{%
 \subsubsection{Gold}\label{gold}}
 
-\textbf{GoldStateVector.from\_silver()}, a fixed 13-slot layout:
-(confidence, predicted\_queue\_wait, predicted\_rtt, sla\_remaining,
-edge\_cpu\_load, resource\_cpu, resource\_gpu, resource\_memory,
-resource\_disk\_io, resource\_thermal, calibration\_delta, error\_rate,
-operational\_state). `mask{[}10{]}`/`mask{[}11{]}` are zeroed exactly
-when Silver left \textbf{calibration\_delta}/\textbf{error\_rate} as
-\textbf{None}, \textbf{stale=True} additionally zero-masks slots 4:10
-(edge\_cpu\_load through resource\_thermal). The PPO policy is always
-fed the full 13-dim vector (masking communicates \_absence\_, it does
-not shrink the input) which is what lets the same trained network handle
-\textbf{NOMINAL}, \textbf{STRESSED}, \textbf{DEGRADING} and
-\textbf{UNREACHABLE} states without retraining per state.
+\textbf{GoldStateVector.from\_silver()} builds a fixed 13-slot layout:
+
+\begin{samepage}
+\begin{itemize}
+\item[0.] \textbf{confidence}
+\item[1.] \textbf{predicted\_queue\_wait}
+\item[2.] \textbf{predicted\_rtt}
+\item[3.] \textbf{sla\_remaining}
+\item[4.] \textbf{edge\_cpu\_load}
+\item[5.] \textbf{resource\_cpu}
+\item[6.] \textbf{resource\_gpu}
+\item[7.] \textbf{resource\_memory}
+\item[8.] \textbf{resource\_disk\_io}
+\item[9.] \textbf{resource\_thermal}
+\item[10.] \textbf{calibration\_delta}
+\item[11.] \textbf{error\_rate}
+\item[12.] \textbf{operational\_state}
+\end{itemize}
+\end{samepage}
+
+`mask{[}10{]}` and `mask{[}11{]}` are zeroed
+exactly when Silver left \textbf{calibration\_delta} or
+\textbf{error\_rate} as \textbf{None}. \textbf{stale=True} additionally
+zero-masks slots 4 through 10 (edge\_cpu\_load through
+resource\_thermal). The PPO policy is always fed the full 13-dim
+vector. Masking communicates \emph{absence}, it does not shrink the input.
+This is what lets the same trained network handle \textbf{NOMINAL},
+\textbf{STRESSED}, \textbf{DEGRADING} and \textbf{UNREACHABLE} states
+without retraining per state.
 
 \hypertarget{mcp-skill-interface}{%
 \subsection{MCP Skill Interface}\label{mcp-skill-interface}}
@@ -244,61 +336,64 @@ not shrink the input) which is what lets the same trained network handle
 \hypertarget{implementation-1}{%
 \subsubsection{Implementation}\label{implementation-1}}
 
-The \textbf{MCPSkillInterface} in agent.py maintains a dictionary
-containing boolean flags corresponding to the eight skill groups. Five
-of these, \textbf{get\_model\_confidence},
+The \textbf{MCPSkillInterface} in agent.py keeps a dictionary of
+boolean flags, one per skill, across eight skill groups. Five of these
+are active by default: \textbf{get\_model\_confidence},
 \textbf{get\_cloud\_queue\_depth}, \textbf{get\_edge\_rtt},
-\textbf{get\_sla\_remaining} and \textbf{get\_edge\_cpu\_load}, are
-activated by default. Three, \textbf{get\_edge\_calibration\_delta},
+\textbf{get\_sla\_remaining} and \textbf{get\_edge\_cpu\_load}. The
+other three, \textbf{get\_edge\_calibration\_delta},
 \textbf{get\_edge\_error\_rate} and
-\textbf{get\_edge\_operational\_state}, are inactive unless
-\textbf{register\_skill()} is invoked first. \textbf{list\_tools()}
-returns only the currently-active names. For every skill \textbf{call()}
-just fetches the relevant element of Gold vector which is pre-computed
-and stored in memory - no network call, no recomputation, so the
-perception cycle stays cheap by construction. Benchmarked directly
-against real DistilBERT CPU inference
-(\textbf{benchmark\_mcp\_perception.py}, 300 requests, same component
-wiring as the live gateway's \textbf{CascadeController}): perception
-(Bronze to Silver to Gold to \textbf{decide()}, including the skill
-interface) averages 0.57ms (p95 0.97ms) against a 23.9ms mean edge
-inference latency, about 2.4\% of it, comfortably inside the per-request
-perception budget. None of the eleven systems in Section 3 exposes its
-signals this way: BranchyNet, MSDNet, EdgeBERT and PROTEUS bake their
-one signal directly into the routing function, and even the two
-production gateways expose configuration options to an operator, not a
-discoverable, callable interface a policy queries for itself at request
-time. This is stated as an internal pattern deliberately, not a claim of
-literal protocol compliance: \textbf{MCPSkillInterface} mimics MCP's
-discovery/registration shape (a Python class with a dictionary of named,
-activatable capabilities and a \textbf{list\_tools()} method) rather
-than implementing the actual Model Context Protocol wire format. There
-is no \textbf{import mcp}, no external MCP server, and no network
-protocol involved. The discovery pattern itself, dynamic per-request
-activation of a signal set, still has no counterpart among the eleven
-systems surveyed, whether or not it is the literal protocol.
+\textbf{get\_edge\_operational\_state}, stay inactive until
+\textbf{register\_skill()} is called. \textbf{list\_tools()} only
+returns the currently active names. Every skill's \textbf{call()} just
+fetches the relevant element of the Gold vector, which is already
+computed and stored in memory. There is no network call and no
+recomputation, so the perception cycle stays cheap by construction.
 
-Earlier, \textbf{AgenticOrchestrator.decide()} for handling the
-\textbf{QUERY\_EXTENDED\_CONTEXT} used to forward pass the policy after
-the extended skills are registered. \textbf{SilverEnricher.enrich()}
-which computes \textbf{calibration\_delta} / \textbf{error\_rate} from
-real \textbf{operational\_state} of the edge is executed before
-\textbf{decide()} ever runs. The input to the policy in the form of the
-Gold vector is the same in both calls. A second forward pass on the same
-input brings not any additional information but only random sampling
-noise from the policy head. The \textbf{decide()} function resolves the
-\textbf{QUERY\_EXTENDED\_CONTEXT} simply by asking \textbf{act()} to
-register the extended skills, after which it queries
+This was benchmarked directly against real DistilBERT CPU inference
+(\textbf{benchmark\_mcp\_perception.py}, 300 requests, the same
+component wiring as the live gateway's \textbf{CascadeController}).
+Perception, meaning Bronze to Silver to Gold to \textbf{decide()}
+including the skill interface, averages 0.57ms (p95 0.97ms). Mean edge
+inference latency is 23.9ms, so perception is about 2.4\% of it,
+comfortably inside the per-request perception budget.
+
+None of the eleven systems in Section~\ref{literature-survey} exposes its signals this way.
+BranchyNet, MSDNet, EdgeBERT and PROTEUS bake their one signal directly
+into the routing function. Even the two production gateways only
+expose configuration options to an operator, not a discoverable,
+callable interface a policy can query for itself at request time.
+
+\textbf{MCPSkillInterface} mimics MCP's discovery and registration shape,
+ a Python class with a dictionary of named, activatable capabilities and
+a \textbf{list\_tools()} method. This helps avoid a dedicated http MCP server
+which will add latency to the request flow.
+
+Earlier designs had \textbf{AgenticOrchestrator.decide()} run a second
+forward pass through the policy after the extended skills were
+registered, to handle \textbf{QUERY\_EXTENDED\_CONTEXT}. It was replaced
+with \textbf{SilverEnricher.enrich()}. This function computes
+\textbf{calibration\_delta} and \textbf{error\_rate} from the edge's
+real \textbf{operational\_state}, already runs before \textbf{decide()}
+does. So the Gold vector the policy sees is identical in both calls, and
+a second forward pass on the same input adds nothing but random
+sampling noise from the policy head.
+
+Instead, \textbf{decide()} resolves \textbf{QUERY\_EXTENDED\_CONTEXT} by
+asking \textbf{act()} to register the extended skills. It then queries
 \textbf{get\_edge\_calibration\_delta()} and
-\textbf{get\_edge\_error\_rate()} directly and applies a hardwired risk
-rule: escalate to cloud if either is above threshold (0.2 / 0.15), else
-send to edge. Masking which is the basis of the "query-conditional
-reveal" concept (hiding becomes conditional on the querying action, not
-just the operational state) is not implemented. Because this would have
-required that the raw PPO training loop (that samples
-\textbf{policy.forward()} directly and bypasses \textbf{decide()}
-altogether) model this reveal protocol as well, such a bigger change has
-become unsupported by the timeline of this project.
+\textbf{get\_edge\_error\_rate()} directly, and applies a hardwired risk
+rule. If either is above threshold (0.2 or 0.15), it escalates to
+cloud. Otherwise it sends to edge.
+
+One feature remains incomplete: a querying action-dependent
+masking mechanism, the key of the ``query-conditional reveal''
+ideology. Under it, concealment of the signal would be a function of which
+skill was queried, not only the operational state. Creating this would mean
+that the PPO learning loop from which only the raw data is obtained, i.e.
+\textbf{policy.forward()} with which a \textbf{decide()} is totally
+bypassed, would be the only ones to learn the reveal protocol. Such a change
+was beyond the scope of this project.
 
 \hypertarget{ppo-agent}{%
 \subsection{PPO Agent}\label{ppo-agent}}
@@ -306,92 +401,146 @@ become unsupported by the timeline of this project.
 \hypertarget{training}{%
 \subsubsection{Training}\label{training}}
 
-`PPOTrainer` (`trainer.py`) is a standard clipped-surrogate PPO loop .
-`train\_agent()` adds domain randomization: `randomize\_scenario()`
-resamples 12 `ScenarioConfig` fields (traffic rates and timing, RTT,
-edge stress/degrade/unreachable probabilities, cloud service time) from
-a seeded RNG before every 2048-step rollout, so the policy sees roughly
-49 distinct sampled scenarios across a 100,000-step run rather than one
-fixed scenario.
+PPO (Schulman et al., 2017) was chosen over the other standard
+policy-gradient candidates for reasons specific to this project, not
+just because PPO is popular.
 
-An initial 50,000-step run left the policy undertrained: action entropy
+Take DQN first. The safety fallback in
+\textbf{AgenticOrchestrator.decide()} (Component 4) triggers when
+action entropy goes above 0.9. That needs the policy to be an explicit
+stochastic distribution over actions at every decision. DQN's
+$\epsilon$-greedy action selection over learned Q-values has no
+equivalent per-decision entropy signal, so the entropy-gated fallback
+this project depends on would have to be built separately, rather than
+falling naturally out of the training objective.
+
+SAC is a poor fit for a different reason. Its maximum-entropy machinery
+(twin Q-networks, a reparameterised continuous policy) is built for
+continuous action spaces and buys nothing over a 3-action discrete space
+like this one.
+
+Against vanilla actor-critic (A2C) or TRPO, PPO's clipped surrogate
+objective approximates TRPO's trust-region constraint without TRPO's
+second-order Hessian computation, and it is also less sensitive to
+learning-rate choice than A2C, which matters on a CPU-only training
+budget with no room for a hyperparameter sweep.
+
+`PPOTrainer`'s advantage estimates use Generalized Advantage Estimation
+(Schulman et al., 2016), the same $\lambda$-weighted exponential average
+of $n$-step temporal-difference residuals that was introduced alongside
+PPO's own lineage of trust-region methods. GAE is used here rather than
+a plain one-step or full Monte-Carlo advantage because the reward is
+noisy at the level of a single request, a per-request weighted sum of
+four objectives (accuracy, SLA, energy, latency, see Section~\ref{evaluation-strategy}). The
+$\lambda$ parameter trades that per-step noise against the bias of
+bootstrapping from the value head, and that trade-off matters on the
+100,000-step training budget this project can actually afford, where a
+higher-variance estimator would need substantially more rollouts to
+converge.
+
+`PPOTrainer` (`trainer.py`) is a standard clipped-surrogate PPO loop.
+`train\_agent()` adds domain randomization (Tobin et al., 2017).
+`randomize\_scenario()` resamples 12 `ScenarioConfig` fields (traffic
+rates and timing, RTT, edge stress/degrade/unreachable probabilities,
+cloud service time) from a seeded RNG before every 2048-step rollout, so
+the policy sees roughly 49 distinct sampled scenarios across a
+100,000-step run rather than one fixed scenario.
+
+Domain randomization was chosen over training on a single fixed
+scenario for a specific reason. The project's target evaluation
+condition, `ScenarioConfig.held\_out()`, is deliberately built to sit
+outside anything seen in training (Section~\ref{evaluation-strategy}). Tobin et al. (2017)
+show that randomizing simulation parameters widely enough can make a
+genuinely novel condition look, to the trained policy, like just
+another sampled variation rather than a distribution shift. Ablation
+Run 6 tests this claim directly, rather than just assuming it, since it
+is the run that evaluates the trained policy against `held\_out()` and
+reports whether performance degrades gracefully or collapses.
+
+An initial 50,000-step run left the policy undertrained. Action entropy
 on real inference traffic stayed pinned above the 0.9 fallback
 threshold, so every routing decision was silently overridden by
-\textbf{\_resolve\_fallback()} rather than the trained policy
+\textbf{\_resolve\_fallback()} instead of the trained policy
 (\textbf{fallback\_rate=1.000} across all scenarios). This was found by
-instrumenting a short training rollout directly: entropy was declining
-normally (1.097 $\to$ 1.082 $\to$ 1.028 over the first three rollouts,
-an accelerating rate) but simply had not crossed 0.9 by 50,000 steps,
-which is evidence of undertraining rather than a broken reward or a
-stuck policy.
-Doubling the run to 100,000 steps resolved this, \textbf{fallback\_rate}
-dropped to 0.000 across all scenarios, confirming the policy's own
-action is now what actually gets dispatched rather than the fixed
-fallback rules.
+instrumenting a short training rollout directly. Entropy was declining
+normally, 1.097 $\to$ 1.082 $\to$ 1.028 over the first three rollouts,
+an accelerating rate, but it simply had not crossed 0.9 by 50,000
+steps. That is evidence of undertraining, not a broken reward or a
+stuck policy. Doubling the run to 100,000 steps fixed this.
+\textbf{fallback\_rate} dropped to 0.000 across all scenarios,
+confirming the policy's own action is now what actually gets
+dispatched, not the fixed fallback rules.
 
 A second issue surfaced once the fallback was confirmed to be genuinely
-off: the retrained policy still escalated to cloud 81.5\% of the time
-under the degraded-network scenario, even though every policy tested
-there, including \textbf{always\_edge}, already hits
-\textbf{sla\_violation\_rate=1.000}, because RTT alone (800--1200ms)
-exceeds the 300ms SLA budget regardless of routing. Escalating in that
-scenario cannot help and was paying roughly 4$\times$ the latency and
-3$\times$ the energy of edge-favouring baselines for no accuracy gain.
-The root cause was in the reward function, not the policy: the latency
+off. The retrained policy still escalated to cloud 81.5\% of the time
+under the degraded-network scenario. That made no sense: every policy
+tested there, including \textbf{always\_edge}, already hits
+\textbf{sla\_violation\_rate=1.000}, because RTT alone (800ms)
+exceeds the 300ms SLA budget no matter how the request is routed.
+Escalating in that scenario cannot help. It was paying roughly
+4$\times$ the latency and 3$\times$ the energy of edge-favouring
+baselines, for no accuracy gain.
+
+The root cause was in the reward function, not the policy. The latency
 term in \textbf{\_compute\_reward()} (\textbf{environment.py}) was
 \textbf{max(0.0, 1.0 - latency/sla\_budget)}, floored at zero once
 latency exceeds the budget. So the reward was identical whether an
-action's latency was 1ms or 1000ms over budget, giving the policy no
+action's latency was 1ms or 1000ms over budget. That gave the policy no
 gradient to prefer the less-bad option once the SLA was already lost.
-Removing the floor (\textbf{1.0 - latency/sla\_budget}, left unclamped,
-though the outer \textbf{np.clip(reward, -1, 1)} in \textbf{step()}
-still bounds the total) and retraining for a further 100,000 steps
-reduced degraded-network escalation from 81.5\% to 21.5\%, energy from
-365.0 to 178.4, and p95 latency from 1067.8ms to 950.7ms. The effect was
-broader than the narrow case it targeted: escalation rate fell from
-roughly 85\% to roughly 20\% in every scenario, not only the
-degraded-network one, with SLA violations under bursty traffic falling
-from 65.5\% to 0.0\% and energy consumption dropping 50--80\% across the
-board, at a small, consistent accuracy cost of 0.5--2 percentage points
-per scenario. Full before/after figures per scenario are given in the
-Evaluation and Discussion section. At this point the degraded-network
-over-escalation was reduced but not eliminated: the policy still
-escalated a fifth of the time in a scenario where escalating provably
-buys nothing.
 
-This policy is not the one the Evaluation and Discussion section
+The fix was to remove the floor, using
+\textbf{1.0 - latency/sla\_budget} unclamped (the outer
+\textbf{np.clip(reward, -1, 1)} in \textbf{step()} still bounds the
+total). Retraining for a further 100,000 steps reduced degraded-network
+escalation from 81.5\% to 21.5\%, energy from 365.0 to 178.4, and p95
+latency from 1067.8ms to 950.7ms.
+
+The effect was broader than the narrow case it targeted. Escalation
+rate fell from roughly 85\% to roughly 20\% in every scenario, not only
+the degraded-network one. SLA violations under bursty traffic fell from
+65.5\% to 0.0\%, and energy consumption dropped 50--80\% across the
+board. The accuracy cost was small and consistent, 0.5--2 percentage
+points per scenario. Full before/after figures per scenario are given
+in the Evaluation and Discussion section. At this point the
+degraded-network over-escalation was reduced, but not eliminated. The
+policy still escalated a fifth of the time, in a scenario where
+escalating provably buys nothing.
+
+This policy is still not the one the Evaluation and Discussion section
 reports. The residual over-escalation turned out to be driven less by
 the reward function than by what the policy was being told about the
 edge. Once \textbf{MiscalibrationClassifier} was fitted (above) and made
 the simulation default, the policy was retrained from scratch for a
-further 100,000 steps in that environment, and degraded-network
-escalation fell again, from 21.5\% to 1.5\%. That retrained policy is
-what every number in Section 7 reports, and Section 7.5 separates how
-much of the improvement belongs to the trained classifier and how much
-to the retraining itself. The residual 1.5\% is still reported as a
-discussed limitation rather than a fully closed issue.
+further 100,000 steps in that environment. Degraded-network escalation
+fell again, from 21.5\% to 1.5\%. That retrained policy is what every
+number in Section~\ref{evaluation-and-discussion} reports. Section~\ref{misc-classifier-refit} separates how much of the
+improvement belongs to the trained classifier and how much to the
+retraining itself. The residual 1.5\% is still reported as a discussed
+limitation, not a fully closed issue.
 
 \hypertarget{safety-fallback}{%
 \subsubsection{Safety fallback}\label{safety-fallback}}
 
 `AgenticOrchestrator.decide()` (`agent.py`) checks two independent
-conditions before trusting the policy\textquotesingle s sampled action:
-action entropy above 0.9, or `is\_ood()`. A z-score check against saved
-training statistics (`state\_stats.json`), requiring at least two slots
-to be simultaneously anomalous (`OOD\_MIN\_ANOMALOUS\_SLOTS=2`) rather
-than one, and flooring each slot\textquotesingle s std
-(`OOD\_STD\_FLOOR=0.02`) so a near-constant training signal (e.g.
-`sla\_remaining` when the SLA budget never varies in training) cannot
-dominate the check on a floating-point-scale deviation. Either condition
-routes the decision to `\_resolve\_fallback()`: an ordered list of named
-guards evaluated first-match-wins. `Queue\_backed\_up` (route to edge if
-predicted queue wait exceeds a per-instance
-`fallback\_queue\_wait\_ceiling`, avoiding escalation into an
-already-collapsing queue) before `low\_confidence` (escalate if
-confidence is below 0.9), defaulting to route-to-edge. The ceiling is an
-instance attribute, not a class constant, specifically so it can be
-recalibrated per client without touching the guard list\textquotesingle
-s structure.
+conditions before it trusts the policy's sampled action. One is action
+entropy above 0.9. The other is `is\_ood()`, a z-score check against
+saved training statistics (`state\_stats.json`). This check requires at
+least two slots to be simultaneously anomalous
+(`OOD\_MIN\_ANOMALOUS\_SLOTS=2`), not just one, and it floors each
+slot's std (`OOD\_STD\_FLOOR=0.02`). That floor stops a near-constant
+training signal, for example `sla\_remaining` when the SLA budget never
+varies in training, from dominating the check on a floating-point-scale
+deviation.
+
+Either condition routes the decision to `\_resolve\_fallback()`, an
+ordered list of named guards evaluated first-match-wins.
+`queue\_backed\_up` runs first: it routes to edge if predicted queue
+wait exceeds a per-instance `fallback\_queue\_wait\_ceiling`, avoiding
+escalation into an already-collapsing queue. `low\_confidence` runs
+next, escalating if confidence is below 0.9. Otherwise the default is
+route-to-edge. The ceiling is an instance attribute, not a class
+constant, specifically so it can be recalibrated per client without
+touching the guard list's structure.
 
 \hypertarget{why-the-fallback-is-deliberately-simple}{%
 \subsubsection{Why the fallback is deliberately
@@ -399,35 +548,34 @@ simple}\label{why-the-fallback-is-deliberately-simple}}
 
 The fallback is an emergency measure, engaged when the policy's own
 output is not trustworthy. Relying on it more heavily would mean
-introducing another learned or more complex system, simply moving the
-trust problem to a higher level.
+introducing another learned or more complex system. That would just
+move the trust problem up a level instead of solving it.
 
-RouteLLM (Section 3) is described purely as a fitted router: a request
-is routed by whatever the model outputs, with no uncertainty or
+RouteLLM (Section~\ref{literature-survey}) is described purely as a fitted router. A request
+is routed by whatever the model outputs, with no uncertainty check or
 out-of-distribution check reported as part of the routing decision
-itself. The entropy/OOD gate here exists specifically so a bad policy
-output degrades to a fixed, auditable rule rather than dispatching
-un-checked. The same pattern that later caught the meta-policy's failure
-to converge (below) rather than letting it silently make governance
-decisions.
+itself. The entropy/OOD gate exists so that a bad policy
+output degrades to a fixed, auditable rule. This is the same pattern that later caught the meta-policy's
+failure to converge (below), instead of letting it silently make
+governance decisions.
 
 \hypertarget{cascade-controller}{%
 \subsection{Cascade Controller}\label{cascade-controller}}
 
-\textbf{CascadeController.process()} is a function that performs forward
-pass for a single request: first, it applies an edge inference timeout
-for 2 seconds, calling \textbf{mark\_unreachable()} upon failure. Then it
-\textbf{emit\_report()} and so on (Bronze/Silver/Gold), then
+\textbf{CascadeController.process()} runs the forward pass for a single
+request. First it applies a 2-second edge inference timeout, calling
+\textbf{mark\_unreachable()} on failure. Then it calls
+\textbf{emit\_report()} and runs Bronze, Silver and Gold. Then it calls
 \textbf{agent.decide()}, then \textbf{\_dispatch()}, then
-\textbf{reflect()}, and \textbf{update\_from\_outcome()}. All this edge
-inference, edge self-reporting, and the agent\textquotesingle s decision
-are done in the same process without crossing a network boundary. The
-only real network call in the whole request path is when
-\textbf{\_dispatch()} calls \textbf{CloudClient.predict()} for action
-\textbf{ESCALATE\_TO\_CLOUD}. The function \textbf{\_dispatch()} will
-retry the cloud call once on failure and use the already computed edge
-result (\textbf{edge\_fallback\_cloud\_unreachable}) instead of failing
-the request outright.
+\textbf{reflect()} and \textbf{update\_from\_outcome()}. Edge inference,
+edge self-reporting, and the agent's decision all happen in the same
+process, without crossing a network boundary. The only real network
+call in the whole request path is when \textbf{\_dispatch()} calls
+\textbf{CloudClient.predict()} for action \textbf{ESCALATE\_TO\_CLOUD}.
+\textbf{\_dispatch()} retries the cloud call once on failure. If it
+still fails, it uses the already computed edge result
+(\textbf{edge\_fallback\_cloud\_unreachable}) instead of failing the
+request outright.
 
 \hypertarget{bidirectional-loop}{%
 \subsection{Bidirectional Loop}\label{bidirectional-loop}}
@@ -435,131 +583,146 @@ the request outright.
 The forward pipeline: `edge\_model.predict()` $\rightarrow$ `edge.emit\_report()` $\rightarrow$
 Bronze $\rightarrow$ Silver $\rightarrow$ Gold $\rightarrow$ `agent.decide()` $\rightarrow$ `\_dispatch()`.
 
-The backward pipeline: \textbf{agent.reflect(latency sla\_met accuracy
-tier fallback)} logs information in the memory buffer, and
-\textbf{edge.update\_from\_outcome(latency sla\_met accuracy)} updates
-the edge device\textquotesingle s rolling error buffer and a slow
-(alpha=0.05) trust EWMA. Only the next request\textquotesingle s Bronze
-snapshot can access them, not the current one. None of the steps modify
-the weights of the PPO policy.
+The backward pipeline works like this. \textbf{agent.reflect(latency,
+sla\_met, accuracy, tier, fallback)} logs the outcome to the memory
+buffer. \textbf{edge.update\_from\_outcome(latency, sla\_met, accuracy)}
+updates the edge device's rolling error buffer and a slow (alpha=0.05)
+trust EWMA. Only the next request's Bronze snapshot can see these
+updates, not the current one. None of these steps change the weights of
+the PPO policy.
 
-This closes a gap every system in Section 3 leaves open, not only the
-cascade baselines: EdgeBERT's DVFS adapts within a single request and
-GreenServ's bandit adapts across requests, but neither feeds a routing
-outcome back into the state of the specific device that served it.
-GreenServ's update changes which model the \emph{next arbitrary query}
-gets routed to, not what the edge device itself now reports about its
-own condition. Ablation Run 4 (Section 7.3) measures the consequence of
-removing this loop directly, rather than leaving its value as an
-architectural assertion.
+This closes a gap that every system in Section~\ref{literature-survey} leaves open, not just
+the cascade baselines. EdgeBERT's DVFS adapts within a single request,
+and GreenServ's bandit adapts across requests, but neither feeds a
+routing outcome back into the state of the specific device that served
+it. GreenServ's update changes which model the \emph{next arbitrary
+query} gets routed to. It does not change what the edge device itself
+now reports about its own condition. Ablation Run 4 (Section~\ref{ablation})
+measures the effect of removing this loop directly, rather than leaving
+its value as an architectural claim.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{media/architecture-animated-frame.png}
+\caption{A single frame from the interactive request-flow diagram
+(\textbf{docs/architecture-animated-diagram.html}), showing one request
+from each of the four client scenarios paused mid-flight at a different
+pipeline stage: \textbf{client\_streamforge} approaching the Medallion
+pipeline, \textbf{client\_nhs} at the Gold vector, \textbf{client\_babcock}
+at the entropy/OOD check into the Fallback Guard, and
+\textbf{client\_newco} arriving at the Edge Pod. The right-hand panel is
+the Policy Orchestration Layer, governance-time only, never per-request.
+The dashed \textbf{DriftEventListener} box marks the same unwired-queue
+gap Section~\ref{fallback-threshold-calibration} discloses in text. The
+full page animates this continuously and is not reproduced live here.}
+\label{fig:animated-frame}
+\end{figure}
 
 \hypertarget{policy-orchestration-layer}{%
 \subsection{Policy Orchestration
 Layer}\label{policy-orchestration-layer}}
 
-The \textbf{PolicyOrchestrator} only runs on onboarding and
-drift-detection, not per request. Its fleet-level value is measured
-directly rather than only asserted here: in a four-client onboarding
-trial, the governance review escalated one under-provisioned decision
-that the deterministic rule alone would have accepted (Ablation Run 7,
-Section 7.4). The \textbf{onBoard()} function
-compares against the new client\textquotesingle s scenario (over 3
-episodes) all the policies in the library using \textbf{\_evaluate()}.
-The \textbf{select\_decision()} function chooses between different
-levels of action depending if, the client has already a policy that
-meets all the tolerance thresholds (\textbf{REUSE}), the
-client\textquotesingle s closest candidate needs some modifications
-(\textbf{FINE\_TUNE}) or it is a completely new scenario
-(\textbf{TRAIN\_NEW}). The training part is done using the same
-domain-randomization (scenario generation) function
-randomized\_scenario(), as a top level seed policy training. So a
-fine-tuned or a newly-created on a per-client policy would not be
-trained on a higher/lower standard than the shared one.
+The \textbf{PolicyOrchestrator} only runs during onboarding and drift
+detection, not on every request. Its fleet-level value is measured
+directly here, not just asserted. In a four-client onboarding trial,
+the governance review escalated one under-provisioned decision that the
+deterministic rule alone would have accepted (Ablation Run 7, Section~\ref{ablation-run-7}).
+
+The \textbf{onboard()} function evaluates every policy in the library
+against the new client's scenario, over 3 episodes, using
+\textbf{\_evaluate()}. \textbf{select\_decision()} then chooses between
+three levels of action. If the client already has a policy that meets
+all the tolerance thresholds, it reuses it (\textbf{REUSE}). If the
+client's closest candidate just needs some adjustment, it fine-tunes it
+(\textbf{FINE\_TUNE}). If the scenario is completely new, it trains a
+new policy (\textbf{TRAIN\_NEW}). That training uses the same
+domain-randomization function, \textbf{randomize\_scenario()}, as
+top-level seed-policy training. So a fine-tuned or newly-created
+per-client policy is never trained to a lower standard than the shared
+one.
 
 The REUSE/FINE\_TUNE/TRAIN\_NEW decision is the task-capacity promotion
-test described by Bossens and Sobey (2021), decide whether an existing
-policy already covers a new task before spending a full training run on
-it, applied at the level of a fleet of onboarding clients rather than a
-single agent's sequential task stream. Neither LiteLLM nor Portkey
-(Section 3) has anything resembling this: both route traffic across a
-fixed, operator-configured set of providers or models, with no mechanism
-for deciding whether an existing policy already serves a new client well
-enough, or needs adapting, or needs replacing. That decision, if it
-exists at all in a production gateway today, is made by a person reading
-a dashboard, not the system itself.
+test described by Bossens and Sobey (2021). It decides whether an
+existing policy already covers a new task, before spending a full
+training run on it. Here it is applied at the level of a whole fleet of
+onboarding clients, rather than a single agent's sequential task
+stream. Neither LiteLLM nor Portkey (Section~\ref{literature-survey}) has anything resembling
+this. Both route traffic across a fixed, operator-configured set of
+providers or models, with no mechanism for deciding whether an existing
+policy already serves a new client well enough, needs adapting, or
+needs replacing. If that decision exists at all in a production gateway
+today, a person reading a dashboard makes it, not the system itself.
 
-All the decisions and supporting metrics are stored to
-orchestrator\_decisions.jsonl using \textbf{\_log\_decision()} function,
-the tolerance gap (dominant\_signal) which lead to the decision, the
-"how/why" explainable feature this project developed, being one of
-the most important pieces of such explanations.
+\textbf{\_log\_decision()} stores every decision and its supporting
+metrics to orchestrator\_decisions.jsonl. This includes the tolerance
+gap (\textbf{dominant\_signal}) that drove the decision, which is one
+of the most important pieces of the ``how and why'' explanation this
+project provides.
 
 \hypertarget{fallback-threshold-calibration}{%
 \subsubsection{Fallback-threshold
 calibration}\label{fallback-threshold-calibration}}
 
-The \textbf{calibrate\_fallback\_ceiling()} function modifies the
-fallback mechanism\textquotesingle s client-specific
-\textbf{fallback\_queue\_wait\_ceiling} setting as the
-client\textquotesingle s own usage history. It is more strictly set when
-the client\textquotesingle s \textbf{fallback\_rate} is high (=
-\textgreater0.3), and becomes more flexible if the client rarely uses it
-(= \textless0.05) which is the same model as
-`recalibrate\_thresholds()` already used to govern the
-reuse/fine-tune/train-new tolerances based on their historical evidence.
-The computed value is not yet consumed live, in the same sense
-\textbf{DriftEventListener} is not (above): \textbf{gateway/app.py}
-constructs each client's \textbf{AgenticOrchestrator} without reading
-\textbf{orch.fallback\_ceilings{[}client{]}} back into it, so the
-calibration is computed and logged but does not yet reach the running
-gateway process. The results of such adjustments are logged in the same
-matter.
+\textbf{calibrate\_fallback\_ceiling()} adjusts the fallback
+mechanism's client-specific \textbf{fallback\_queue\_wait\_ceiling}
+based on that client's own usage history. It tightens when the
+client's \textbf{fallback\_rate} is high (above 0.3), and loosens when
+the client rarely triggers the fallback (below 0.05). This is the same
+model `recalibrate\_thresholds()` already uses to govern the
+reuse/fine-tune/train-new tolerances from historical evidence.
 
-\textbf{DriftEventListener.should\_escalate()} considers the combination
-of two signals instead of just one. A client in sustained distress,
-reporting \textbf{DEGRADING} or \textbf{UNREACHABLE} while its trust
-score stays low, triggers \textbf{onboard()} only after that state has
-persisted for \textbf{recovery\_window\_s}. A spike in error rate
-overrides this and escalates immediately, provided the client-specific
-cooldown has elapsed. Together the two rules mean a genuine spike is not
-held back for the full sustained-distress window, and does not
-re-trigger on every request during an outage.
-\textbf{DriftEventListener} was found, while extending the governance
-layer described below, to be unwired in the live gateway:
-\textbf{gateway/app.py} never constructs one or passes it to
-\textbf{CascadeController} (which accepts an optional
-\textbf{drift\_listener} that stays \textbf{None} in production today).
-Its shape (a non-blocking \textbf{put\_nowait()} onto an
-\textbf{asyncio.Queue}, consumed by an async \textbf{run\_forever()}) is
-correct and only exercised by its own self-check. It is treated here as
-built-but-not-yet-live infrastructure rather than an active production
+This computed value is not yet consumed live, in the same sense
+\textbf{DriftEventListener} is not (above). \textbf{gateway/app.py}
+builds each client's \textbf{AgenticOrchestrator} without reading
+\textbf{orch.fallback\_ceilings{[}client{]}} back into it. So the
+calibration is computed and logged, but it does not yet reach the
+running gateway process. Every such adjustment is logged the same way.
+
+\textbf{DriftEventListener.should\_escalate()} looks at two signals
+together, not just one. A client in sustained distress, reporting
+\textbf{DEGRADING} or \textbf{UNREACHABLE} while its trust score stays
+low, only triggers \textbf{onboard()} once that state has persisted for
+\textbf{recovery\_window\_s}. A spike in error rate overrides this and
+escalates immediately, as long as the client-specific cooldown has
+elapsed. Together, these two rules mean a genuine spike is not held
+back for the full sustained-distress window, and does not re-trigger on
+every request during an outage.
+
+While extending the governance layer described below,
+\textbf{DriftEventListener} was found to be unwired in the live
+gateway. \textbf{gateway/app.py} never constructs one or passes it to
+\textbf{CascadeController}, which accepts an optional
+\textbf{drift\_listener} that stays \textbf{None} in production today.
+Its shape, a non-blocking \textbf{put\_nowait()} onto an
+\textbf{asyncio.Queue}, consumed by an async \textbf{run\_forever()}, is
+correct and is only exercised by its own self-check. It is treated here
+as built-but-not-yet-live infrastructure, not an active production
 path.
 
 \hypertarget{per-client-thresholds}{%
 \subsubsection{Per-client thresholds}\label{per-client-thresholds}}
 
 A company can set its own onboarding bar instead of inheriting the
-shared default: \textbf{PolicyOrchestrator.set\_client\_thresholds()}
-stores a per-client \textbf{ToleranceThresholds} override, and
+shared default. \textbf{PolicyOrchestrator.set\_client\_thresholds()}
+stores a per-client \textbf{ToleranceThresholds} override.
 \textbf{\_thresholds\_for(client)} resolves override-or-default
-everywhere \textbf{onboard()} previously read the shared
+everywhere \textbf{onboard()} used to read the shared
 \textbf{self.thresholds} directly. \textbf{recalibrate\_thresholds()}
-still only drifts the shared default. A client that
-explicitly set its own bar is not silently moved by the aggregate
-false-reuse rate observed across other clients. Exposed on the dashboard
-via optional \textbf{max\_sla\_violation\_rate} /
-\textbf{max\_escalation\_rate} / \textbf{min\_accuracy} fields on
-\textbf{POST /clients}.
+still only drifts the shared default, so a client that set its own bar
+is not silently moved by the aggregate false-reuse rate observed across
+other clients. This is exposed on the dashboard through optional
+\textbf{max\_sla\_violation\_rate}, \textbf{max\_escalation\_rate} and
+\textbf{min\_accuracy} fields on \textbf{POST /clients}.
 
 \hypertarget{llm-backed-diagnosis}{%
 \subsubsection{LLM-backed diagnosis and live
 monitoring}\label{llm-backed-diagnosis}}
 
 Two related capabilities were added to make the orchestrator explain
-itself rather than only log a decision. Both call a small local model
-(Ollama, \textbf{gemma4:12b-it-qat}) through \textbf{diagnosis.py}'s
-\textbf{DiagnosisProvider} abstraction, entirely off the request path,
-and neither diagnosis output feeds back into
+itself, not just log a decision. Both call a small local model (Ollama,
+\textbf{gemma4:12b-it-qat}) through \textbf{diagnosis.py}'s
+\textbf{DiagnosisProvider} abstraction, entirely off the request path.
+Neither diagnosis output feeds back into
 \textbf{AgenticOrchestrator.decide()} or any routing decision, so the
 per-request PPO's determinism claim is untouched.
 
@@ -572,12 +735,13 @@ alongside a real-time escalation chart, tailed from
 \textbf{request\_log.jsonl} by byte offset.
 
 \textbf{\_diagnose\_unreachable\_threshold()} answers a narrower
-question: after a fresh FINE\_TUNE or TRAIN\_NEW, if the
-freshly-trained-for-this-exact-scenario policy still misses the client's
-threshold, that is evidence the requirement itself may be structurally
-unreachable for that scenario (e.g. RTT alone exceeding the SLA budget),
-not that training needs another attempt. The same diagnosis provider is
-asked whether the requirement is realistic and what should change.
+question. After a fresh FINE\_TUNE or TRAIN\_NEW, if the policy trained
+specifically for that scenario still misses the client's threshold,
+that is evidence the requirement itself may be unreachable for that
+scenario, for example because RTT alone already exceeds the SLA
+budget. It is not evidence that training just needs another attempt.
+The same diagnosis provider is then asked whether the requirement is
+realistic, and what should change.
 
 \hypertarget{learned-meta-policy-attempted}{%
 \subsubsection{A learned meta-policy for onboarding decisions,
@@ -586,61 +750,66 @@ attempted and superseded}\label{learned-meta-policy-attempted}}
 The REUSE/FINE\_TUNE/TRAIN\_NEW decision above is a deterministic
 threshold rule. To make it learned instead,
 \textbf{orchestrator\_trainer.py} built
-\textbf{OrchestrationDecisionEnv}: one synthetic onboarding decision per
-episode, framed as an episode-length-one MDP so that
+\textbf{OrchestrationDecisionEnv}. It runs one synthetic onboarding
+decision per episode, framed as an episode-length-one MDP, so that
 \textbf{PPOTrainer}/\textbf{PPONetwork} could be reused completely
-unmodified, with a reward always computed from a genuine evaluation of
-whichever action was actually taken (REUSE evaluates the real seed
-policy, while FINE\_TUNE/TRAIN\_NEW really invoke a short training run
-and then evaluate the result). The reward was never a fabricated
-number, only a reduced
-training budget during meta-training to keep rollout collection
-tractable. \textbf{PolicyOrchestrator.\_meta\_decide()} wired this in
-with the identical entropy/OOD safety fallback that
+unmodified. The reward is always computed from a genuine evaluation of
+whichever action was actually taken. REUSE evaluates the real seed
+policy. FINE\_TUNE and TRAIN\_NEW actually run a short training run,
+then evaluate the result. The reward was never a fabricated number,
+only the training budget during meta-training was reduced, to keep
+rollout collection tractable.
+\textbf{PolicyOrchestrator.\_meta\_decide()} wired this in with the
+same entropy/OOD safety fallback that
 \textbf{AgenticOrchestrator.decide()} already uses.
 
-It did not converge. After 160 real training steps (measured at roughly
-47--75 seconds per step, since each step is a real evaluation or a real
-short training run rather than a cheap simulated transition), entropy
+It did not converge. Each step took roughly 47 to 75 seconds, because
+every step is a real evaluation or a real short training run, not a
+cheap simulated transition. After 160 real training steps, entropy
 stayed above the 0.9 fallback threshold on every one of four real test
 clients. Every governance decision silently fell back to the
-deterministic rule, and a subsequent comparison run produced identical
-decisions with and without the meta-policy configured, because the
-learned path never actually engaged. Matching the per-request PPO's own
-100,000-step convergence point at this measured rate would take on the
-order of 58 days, which is not tractable under this design: the
-per-request PPO's simulated environment steps are near-free, while this
-meta-environment's steps are expensive by design, because the reward is
-never fabricated. Full numbers and logs are kept in
-\textbf{evaluation/option-b-meta-policy-failure-2026-08-24.md}, and the
-code is kept in the repository rather than deleted. The safety fallback
-caught the failure as intended instead of silently authorising a
-bad governance decision, which is itself evidence that the
-entropy/OOD-gated pattern works, even though this particular learned
-component's training economics did not.
+deterministic rule. A later comparison run produced identical decisions
+with and without the meta-policy configured, because the learned path
+never actually engaged.
+
+Matching the per-request PPO's own 100,000-step convergence point, at
+this measured rate, would take on the order of two months, 54 to 87
+days across that range. That is not tractable
+under this design. The per-request PPO's simulated environment steps
+are near-free, but this meta-environment's steps are expensive by
+design, because the reward is never fabricated. Full numbers and logs
+are kept in \textbf{evaluation/option-b-meta-policy-failure-2026-08-24.md},
+and the code stays in the repository rather than being deleted. The
+safety fallback caught the failure exactly as intended, instead of
+silently authorising a bad governance decision. That is itself evidence
+the entropy/OOD-gated pattern works, even though this particular
+learned component's training economics did not.
 
 \hypertarget{llm-governance-review}{%
 \subsubsection{LLM governance review}\label{llm-governance-review}}
 
-What replaced the meta-policy attempt:
+This is what replaced the meta-policy attempt.
 \textbf{PolicyOrchestrator.\_governance\_review()} lets the same local
-LLM review the rule's (or meta-policy's) decision and only ever
-\emph{escalate} it to a more cautious action (REUSE $\to$ FINE\_TUNE
-$\to$ TRAIN\_NEW), never downgrade it. So a hallucinated review can
-waste compute at worst, and can never silently authorise an
-under-provisioned policy. It is skipped entirely once the decision is
-already TRAIN\_NEW, since there is nothing more cautious to escalate to,
-and is a no-op when no diagnosis provider is configured. The review was
-live-tested against a real Ollama instance with a real client's numbers:
-a seed policy measuring \textbf{sla\_violation\_rate=1.00} against a
-\textbf{0.15} requirement, where the deterministic rule had chosen
-\textbf{fine\_tune}. The review correctly escalated the decision to
-\textbf{train\_new}, justifying it as ``the seed policy's
-sla\_violation\_rate of 1.00 significantly exceeds the maximum allowed
-threshold of 0.15''. This took roughly 2.5 seconds once the local model
-was warm. A first, cold-Ollama attempt timed out at 40 seconds across
-both retry attempts. An operational quirk of the LLM being
-idle-unloaded, not a code defect.
+LLM review the rule's (or meta-policy's) decision. It can only ever
+\emph{escalate} that decision to a more cautious action (REUSE $\to$
+FINE\_TUNE $\to$ TRAIN\_NEW), never downgrade it. So a hallucinated
+review can waste compute at worst. It can never silently authorise an
+under-provisioned policy. The review is skipped entirely once the
+decision is already TRAIN\_NEW, since there is nothing more cautious to
+escalate to, and it is a no-op when no diagnosis provider is
+configured.
+
+The review was live-tested against a real Ollama instance, using a
+real client's numbers. A seed policy measured
+\textbf{sla\_violation\_rate=1.00} against a \textbf{0.15} requirement,
+and the deterministic rule had chosen \textbf{fine\_tune}. The review
+correctly escalated the decision to \textbf{train\_new}, justifying it
+as ``the seed policy's sla\_violation\_rate of 1.00 significantly
+exceeds the maximum allowed threshold of 0.15''. This took roughly 2.5
+seconds once the local model was warm. An earlier attempt against a
+cold Ollama had exhausted both retries at the raised 20-second timeout,
+40 seconds in total. That was an
+operational quirk of the LLM being idle-unloaded, not a code defect.
 
 A four-client onboarding run with governance review enabled confirmed
 three clients' REUSE decisions without wasting compute, and escalated
@@ -652,43 +821,133 @@ Evaluation and Discussion section.
 \subsection{Deployment}\label{deployment}}
 
 \textbf{gateway/app.py} and \textbf{gateway/cloud\_app.py} are two
-separate FastAPI services which correspond to an edge-side gateway and a
-cloud pod respectively. \textbf{CloudClient} is the only component that
-connects these two services with real HTTP requests. The GCP
-multi-region deployment script (code/deploy/gcp-up.sh) gives three VMs:
-one cloud pod and two edge-side gateways located in different regions.
-Each of these edge machines executes its own \textbf{CascadeController},
-agent, and edge model co-located in the same process so there are no
-network calls between the components. This is similar to a sidecar but
-the key point is that here the agent is not a separate remote service
-which adds another network layer in the communication. The cloud
-connection is initiated only when the request is actually routed to the
-cloud.
+separate FastAPI services. They correspond to an edge-side gateway and
+a cloud pod. \textbf{CloudClient} is the only component that connects
+these two services, using real HTTP requests. The GCP multi-region
+deployment script (code/deploy/gcp-up.sh) provisions three VMs: one
+cloud pod, and two edge-side gateways in different regions. Each edge
+machine runs its own \textbf{CascadeController}, agent, and edge model,
+all co-located in the same process, so there are no network calls
+between them. This is similar to a sidecar, but the key point is that
+the agent here is not a separate remote service adding another network
+layer. The cloud connection only opens once a request is actually
+routed to the cloud.
 
-A second, real Kubernetes deployment path exists alongside this one:
-\textbf{code/deploy/gke-up.sh}/\textbf{gke-update.sh} provision one
+A second, real Kubernetes deployment path exists alongside this one.
+\textbf{code/deploy/gke-up.sh} and \textbf{gke-update.sh} provision one
 small GKE cluster per region (europe-west2 cloud, europe-west4
-near-edge, australia-southeast1 far-edge) and deploy the same three
-services via real \textbf{kubectl}-managed
+near-edge, australia-southeast1 far-edge). They deploy the same three
+services through real \textbf{kubectl}-managed
 \textbf{Deployment}/\textbf{Service} manifests
 (\textbf{code/k8s/cloud.yaml}, \textbf{orchestrator.yaml},
-\textbf{gateway.yaml.tmpl}) rather than \textbf{docker run} on a bare
-VM. A single Kubernetes cluster cannot span these three regions, etcd
-consensus is not built for the ~250ms RTT to the Sydney region, so
-cross-region calls stay at the HTTP layer as in the Docker path
-above, just between GKE clusters instead of bare VMs. Prometheus and
-Grafana are deployed the same way, as real Kubernetes workloads in the
-cloud-region cluster (\textbf{code/k8s/prometheus.yaml.tmpl},
-\textbf{grafana.yaml}), scraping \textbf{prometheus\_client} metrics
-exposed at \textbf{/metrics} on every service across all three regions.
+\textbf{gateway.yaml.tmpl}), rather than \textbf{docker run} on a bare
+VM. A single Kubernetes cluster cannot span these three regions,
+because etcd consensus is not built for the roughly 250ms RTT to the
+Sydney region. So cross-region calls stay at the HTTP layer, just as in
+the Docker path above, only now between GKE clusters instead of bare
+VMs. Prometheus and Grafana are deployed the same way, as real
+Kubernetes workloads in the cloud-region cluster
+(\textbf{code/k8s/prometheus.yaml.tmpl}, \textbf{grafana.yaml}),
+scraping \textbf{prometheus\_client} metrics exposed at \textbf{/metrics}
+on every service across all three regions.
 
-This deployment shape is not something LiteLLM or Portkey are built for:
-both route between cloud-hosted model providers, so their deployment
-unit is the gateway process itself, with no equivalent to a
-resource-constrained edge tier running its own model, its own
-CascadeController, and its own agent co-located with it. Comparing this
-project against them on "does it beat a production LLM gateway"
-(Section 3) is fair on the routing-decision axis both address, but the
-edge/cloud split itself is a problem those gateways were never designed
-to solve.
+This deployment shape is not something LiteLLM or Portkey are built
+for. Both route between cloud-hosted model providers, so their
+deployment unit is just the gateway process itself. Neither has an
+equivalent to a resource-constrained edge tier running its own model,
+its own CascadeController, and its own agent co-located with it.
+Comparing this project against them on ``does it beat a production LLM
+gateway'' (Section~\ref{literature-survey}) is fair on the routing-decision axis both
+address. But the edge/cloud split itself is a problem those gateways
+were never designed to solve.
 
+
+\hypertarget{orchestration-pattern-classification}{%
+\subsection{Orchestration pattern
+classification}\label{orchestration-pattern-classification}}
+
+Microsoft's Azure Architecture Center publishes a widely-used taxonomy
+of five multiagent orchestration patterns: sequential, concurrent,
+group chat, handoff, and magentic (Microsoft, 2026). The same guide is
+explicit that not every AI system needs to sit at the multiagent level
+at all. It names a lower complexity tier first: a single agent with
+tools, which loops through model calls and tool invocations to refine
+its own result. It recommends using the lowest tier that reliably
+meets the requirement, because each step up adds coordination
+overhead, latency, and new failure modes. Placing this project's own
+design against that taxonomy is useful for a reason beyond
+comparison. It makes explicit which complexity tier each part of the
+system deliberately sits at, and why. The classification below is not
+a single named pattern. It is a hybrid: one pattern for the fast,
+per-request path, and a different one for the slow, governance-time
+path, chosen separately because the two paths have different
+coordination requirements.
+
+The per-request fast path sits at the single-agent-with-tools tier,
+not the multiagent tier. Bronze, Silver, and Gold (Section~\ref{dynamic-medallion-pipeline}) are
+deterministic transforms, not agents. They enrich and normalise state
+without making any decision themselves, so the pipeline that feeds
+them into the policy is closer to what the same guide calls a
+sequential pipeline, and closer still to the classic Pipes and Filters
+pattern it names as sequential orchestration's non-agentic ancestor.
+One agent sits at the end of that pipeline: the PPO-based
+\textbf{AgenticOrchestrator} (Section~\ref{ppo-agent}). It reads
+whichever Gold slots the MCP-pattern skill interface
+(Section~\ref{mcp-skill-interface}) currently exposes, exactly the
+kind of standardised tool discovery the Azure guide itself points to
+when it names the Model Context Protocol as the mechanism that lets an
+agent discover and invoke tools. There is no second agent on this
+path, and no coordination between peer agents to get wrong. That is a
+deliberate choice, not an oversight. It matches the safety-first,
+single-pass perception-reason-act design already set out in
+Section~\ref{ppo-agent}, and it follows the Azure guide's own advice
+to avoid the coordination overhead of a multiagent pattern on a path
+where latency is the whole point.
+
+The governance-time path is where a second, genuinely separate
+decision-maker appears. The Policy Orchestration Layer
+(Section~\ref{policy-orchestration-layer}) first proposes a
+reuse, fine-tune, or train-new decision through its own rule (or, in
+the superseded experiment, a learned meta-policy). The LLM governance
+review (Section~\ref{llm-governance-review}) then checks that proposal
+against the same client scenario and can escalate it to a more
+cautious action. This is a close match for what the Azure guide calls
+a maker-checker loop, a named sub-pattern of group chat orchestration
+in which one agent proposes a result and a second agent checks it
+against defined criteria, pushing back with specific feedback if the
+result falls short. Two details in this project's version diverge from
+the pattern as written. First, the check runs once, not as a repeating
+back-and-forth until the checker is satisfied. Second, the checker can
+only escalate the proposed decision, never approve something more
+permissive than the rule itself already chose. That asymmetry is a
+safety constraint layered on top of the pattern, not a feature the
+pattern requires, and it exists so a hallucinated review can waste
+compute at worst rather than silently authorise an under-provisioned
+policy.
+
+Taken together, this is a hybrid orchestration design, not a single
+named pattern. Table~\ref{tab:orchestration-hybrid} summarises the
+split. The fast path stays at the single-agent tier the Azure guide
+recommends defaulting to, and only the slow, governance-time path
+steps up to a constrained, one-pass maker-checker loop. The same guide
+treats a hybrid like this as the expected shape of a real system
+rather than an awkward compromise: it recommends combining patterns
+exactly when different stages of one workload have different
+coordination requirements, rather than forcing every stage into a
+single pattern chosen up front.
+
+{\small\setlength{\tabcolsep}{4pt}
+\begin{longtable}{p{2.6cm}p{3.6cm}p{6.8cm}}
+\caption{The hybrid split: which orchestration pattern each execution
+path uses, and why.}\label{tab:orchestration-hybrid}\\
+\toprule Execution path & Pattern used & Components involved \\
+\midrule \endfirsthead
+\toprule Execution path & Pattern used & Components involved \\
+\midrule \endhead
+Fast path (per-request routing) & Single agent with tools, fed by a
+sequential pipeline & Medallion pipeline (Bronze/Silver/Gold), MCP
+skill interface, PPO agent \\
+Slow path (governance/onboarding) & Maker-checker loop (a group chat
+variant), one-pass and escalate-only & Policy Orchestration Layer +
+LLM governance review \\
+\bottomrule \end{longtable}}

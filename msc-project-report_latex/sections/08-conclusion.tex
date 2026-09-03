@@ -4,156 +4,193 @@
 \hypertarget{summary-of-work}{%
 \subsection{Summary of work}\label{summary-of-work}}
 
-This project set out to answer a specific question: what changes when a
+This project set out to answer a specific question. What changes when a
 cascade router is given live infrastructure state and a learned, closed
 decision loop, instead of a confidence threshold fixed at design time?
 The artefact built to answer it is a context-aware agentic gateway with
-seven integrated components: the Edge Context Protocol, the dynamic
-Medallion pipeline, an MCP-pattern skill interface, a PPO agent trained
-offline in a Gymnasium simulation, a Cascade Controller wiring the
-request path together, a bidirectional forward/backward loop, and a
+seven integrated components. These are the Edge Context Protocol, the
+dynamic Medallion pipeline, an MCP-pattern skill interface, a PPO agent
+trained offline in a Gymnasium simulation, a Cascade Controller wiring
+the request path together, a bidirectional forward/backward loop, and a
 Policy Orchestration Layer governing multiple clients' policies. It was
 evaluated against five core baselines and eight literature baselines
-(Section 3) across three traffic scenarios, plus the full seven-run
-ablation (Section 7).
+(Section~\ref{literature-survey}), across three traffic scenarios, plus the full seven-run
+ablation (Section~\ref{evaluation-and-discussion}).
 
-The headline result is the bursty-traffic comparison (Section 7.2):
-every static-threshold or always-cloud baseline that tries to preserve
+The headline result is the bursty-traffic comparison (Section~\ref{baselines-and-scenarios}).
+Every static-threshold or always-cloud baseline that tries to preserve
 accuracy under a traffic burst pays for it with SLA violations in the
-59.5--60.5\% range, while the proposed system holds zero SLA violations
-at 0.5\% of the escalation rate and 14\% of the energy cost of
-\textbf{always\_cloud}, within one and a half percentage points of its
-accuracy. Under steady traffic the accuracy question is closer: a simple
-static threshold reaches 0.805 against the proposed system's 0.785, so
-two accuracy points are genuinely given up when nothing is stressed. It
-buys them at 3.5 times the energy, escalating every request rather than
-1\% of them. The distinctive claim is still the stressed condition, which
-is what the architecture was built for rather than a condition chosen
-after the fact to flatter the result.
+59.5--60.5\% range. The proposed system, in contrast, holds zero SLA
+violations, at 0.5\% of the escalation rate and 14\% of the energy cost
+of \textbf{always\_cloud}, and within two percentage points of its
+accuracy.
+
+Under steady traffic the accuracy question is closer. A simple static
+threshold reaches 0.805 against the proposed system's 0.785, so two
+accuracy points are genuinely given up when nothing is stressed. But it
+buys those two points at 3.5 times the energy, and by escalating every
+request instead of just 1\% of them. The distinctive claim is still the
+stressed condition. That is what the architecture was built for, not a
+condition chosen after the fact to flatter the result.
 
 \hypertarget{revisiting-the-objectives}{%
 \subsection{Revisiting the objectives}\label{revisiting-the-objectives}}
 
-The seven objectives set out in Section 2.2 were addressed as follows.
-The literature survey (Objective 1, Section 3) positions the artefact
+The seven objectives set out in Section~\ref{aims-and-objectives} were addressed as follows.
+The literature survey (Objective 1, Section~\ref{literature-survey}) positions the artefact
 against RouteLLM, the NSGA-II router, Splitwise, GreenServ and PROTEUS,
-as planned. The escalation decision was formalised as an MDP over a
-13-slot state, three actions and a four-term reward (Objective 2). The
-Bronze/Silver/Gold Medallion pipeline, the Edge Context Protocol and the
-MCP-pattern skill interface were all implemented, and all three are
-exercised by the live gateway rather than only the offline simulation
-(Objectives 3, 4 and 6).
+as planned. The escalation decision was formalised as a Markov Decision
+Process over a 13-slot state, three actions, and a four-term reward
+(Objective 2). The Bronze/Silver/Gold Medallion pipeline, the Edge
+Context Protocol, and the MCP-pattern skill interface were all
+implemented. All three are exercised by the live gateway, not just the
+offline simulation (Objectives 3, 4 and 6).
 
-The PPO agent was trained offline with domain randomisation and deployed
-as a frozen policy reachable over HTTP (Objective 5). It was live-tested
-twice: as a plain-Docker multi-region GCP deployment, and as a genuine
-3-region Kubernetes (GKE) deployment running the current policy. As
-Section 5's Deployment subsection states plainly, neither is a literal
-sidecar.
+The PPO agent was trained offline with domain randomisation, and
+deployed as a frozen policy reachable over HTTP (Objective 5). It has
+been live-tested twice, once as a plain-Docker multi-region GCP
+deployment and once as a genuine 3-region Kubernetes (GKE) deployment
+running the current policy. As Section~\ref{design-development-and-implementation}'s Deployment subsection states
+plainly, neither of these is a literal sidecar.
 
 Objective 7 went beyond its original plan. The system was evaluated
-against the five core baselines across three traffic scenarios, plus the
-full seven-run ablation (Section 7.1). Eight literature baselines and a
-governance-layer ablation (Run 7) were added once the Policy
-Orchestration Layer entered scope in Week 7--8. A change traced back to
-specific supervisor feedback rather than presented as always having been
-the plan.
+against the five core baselines across three traffic scenarios, plus
+the full seven-run ablation (Section~\ref{evaluation-strategy}). Eight literature baselines
+and a governance-layer ablation (Run 7) were added once the Policy
+Orchestration Layer entered scope, in Week 7--8. That addition traces
+back to specific supervisor feedback rather than being presented here
+as if it had always been the plan.
 
-Five of the six contributions claimed in Section 2.3 are backed by a
-specific measurement rather than only asserted. The sixth is not, and
-that is reported here rather than left for a reader to find in Section
-7. The Edge Context
-Protocol's value is isolated in Ablation Run 3 (Section 7.3): adding
-\texttt{calibration\_delta} to a confidence-only threshold makes almost
-no difference, showing that the Protocol contributes by feeding a
-learned policy, not by adding one more input to an unchanged threshold.
+Five of the six contributions claimed in Section~\ref{contributions} are backed by a
+specific measurement, not just asserted. The sixth is not, and that is
+reported here rather than left for a reader to find buried in Section~\ref{evaluation-and-discussion}.
+
+The Edge Context Protocol's value is isolated in Ablation Run 3
+(Section~\ref{ablation}). Adding \texttt{calibration\_delta} to a confidence-only
+threshold makes almost no difference on its own. This shows that the
+Protocol contributes by feeding a learned policy, not by adding one
+more input to an unchanged threshold.
+
 The bidirectional loop is the contribution the final evaluation does
 not support. Under the pre-retrain policy, Ablation Run 4 showed that
 disabling the loop cost 5.5 accuracy points under degraded network,
-exactly the condition it was designed for. Under the retrained policy
-that gap closed: Run 4 now matches \textbf{run1\_full} to within half an
-accuracy point in every scenario (Section 7.3). The loop's measured
+exactly the condition it was designed for. Under the retrained policy,
+that gap closed. Run 4 now matches \textbf{run1\_full} to within half
+an accuracy point in every scenario (Section~\ref{ablation}). The loop's measured
 value was real, but it was largest when the policy was least well
-adapted to its own inputs, and a policy retrained under a fitted
-classifier recovers most of what the loop had been supplying. The
-architectural case for closing the loop stands on Section 3's survey
-gap. The empirical case does not survive the retrain, and is not
-claimed. The policy's learned response to
-per-request SLA-remaining and predicted-RTT signals, shaped by the
-reward function's SLA term, is the mechanism behind the bursty-traffic
-result above. It is a learned preference, not a hard pre-dispatch gate,
-as Section 5 and Section 7.1 both state plainly. The Policy
-Orchestration Layer's governance value is isolated in Ablation Run 7
-(Section 7.4), where LLM-backed review escalates one client's
-under-provisioned decision that the deterministic rule alone would have
-missed. The dynamic Medallion pipeline (Contribution 2) is independently
-measured by the three-way static/ conditional/agent-driven Silver
-comparison, Run 5 (Section 7.1): the differences are real but modest and
-scenario-dependent, with no one reveal strategy dominating throughout,
-which is itself the honest finding rather than a gap. The MCP skill
-interface (Contribution 4) is independently benchmarked against real
-HuggingFace inference latency in the live request path: perception cost
-(Bronze to Silver to Gold to \textbf{AgenticOrchestrator.decide()},
-including the skill interface) averages 0.57ms (p95 0.97ms) against a
-23.9ms mean real DistilBERT forward pass, about 2.4\% of edge inference
-latency, confirming it sits well inside the per-request perception
-budget claimed in Section 2.3.
+adapted to its own inputs. A policy retrained under a fitted classifier
+recovers most of what the loop had been supplying. So the
+architectural case for closing the loop still stands on Section~\ref{literature-survey}'s
+survey gap, but the empirical case does not survive the retrain, and it
+is not claimed here.
+
+The policy's learned response to per-request SLA-remaining and
+predicted-RTT signals is the mechanism behind the bursty-traffic result
+above, shaped by the reward function's SLA term. It is a learned
+preference, not a hard pre-dispatch gate, as Section~\ref{design-development-and-implementation} and Section~\ref{evaluation-strategy}
+both state plainly.
+
+The Policy Orchestration Layer's governance value is isolated in
+Ablation Run 7 (Section~\ref{ablation-run-7}). There, LLM-backed review escalates one
+client's under-provisioned decision, a decision the deterministic rule
+alone would have missed.
+
+The dynamic Medallion pipeline (Contribution 2) is measured
+independently, by the three-way static/conditional/agent-driven Silver
+comparison, Run 5 (Section~\ref{evaluation-strategy}). The differences there are real but
+modest and scenario-dependent, and no one Silver strategy dominates
+throughout, which is itself the finding rather than a gap.
+
+The MCP skill interface (Contribution 4) is benchmarked independently
+against real HuggingFace inference latency in the live request path.
+Perception cost (Bronze to Silver to Gold to
+\textbf{AgenticOrchestrator.decide()}, including the skill interface)
+averages 0.57ms, with a p95 of 0.97ms, against a 23.9ms mean real
+DistilBERT forward pass. That is about 2.4\% of edge inference latency,
+confirming it sits well inside the per-request perception budget
+claimed in Section~\ref{contributions}.
 
 \hypertarget{limitations-and-future-work}{%
 \subsection{Limitations and future work}\label{limitations-and-future-work}}
 
-Section 7.6 already discusses five specific limitations in detail
-(residual degraded-network over-escalation, the meta-policy that never
-converged, synthetic queue/RTT/energy signals, serialised concurrent LLM
-diagnosis calls, and the per-request SLA
-check being a learned signal rather than a hard pre-dispatch gate). They
-are not repeated in full here. At the level of the project as a whole,
-five follow-on directions are the most immediate. First,
-\textbf{MiscalibrationClassifier} is now fitted on real, non-circular data
-in both domains it was ever deployed to (Section 5), and the
-simulation-domain fit is what every evaluation number in this report
-past that point uses by default. Its cross-validated accuracy is
-still modest, particularly for the STRESSED class (33\% precision), so
-the natural next step is not fitting it for the first time but
-improving what is already fitted: collecting a larger simulation-domain
-sample, or a richer feature set than the six-dimensional stress-plus-error-rate
-vector it currently sees, are the two most direct levers. Second,
-replacing the synthetic queue-depth and RTT signals in the Gymnasium
-simulation with measurements pulled from the live multi-region Docker
-deployment would close the one sim-to-real gap this project has not yet
-validated directly, since inference latency itself is already measured
-on real hardware. Third, the residual 1.5\% over-escalation under
-sustained network degradation (Section 7.6) is small enough that the
-reward function is no longer the obvious place to attack it. Fitting the
-classifier cut this from 21.5\% without touching the reward at all
-(Section 7.5), so the remaining question is whether a scenario-conditioned
-reward term would close the last 1.5\% or merely trade it for a
-regression elsewhere. That is now a hypothesis worth testing rather than
-a diagnosed defect awaiting a known fix, and it should be evaluated the
-same way the reward-gradient fix was. Fourth, LiteLLM's and Portkey's routing
-strategies (Section 3) are compared here only qualitatively, against
-their own documentation. Turning that into an empirical row in Section 7
-requires first deciding, fairly to both sides, how a provider-routing
-gateway's rule maps onto an edge/cloud decision (Section 7.1 states this
-plainly rather than presenting an invented mapping as settled), and is
-the most direct way to strengthen the "beats the field, not only the
-papers" claim this report makes. Fifth, \textbf{sla\_violation\_predicted}
-(Section 5, Silver) is a computed signal never read by any decision
-path. Wiring it into \textbf{AgenticOrchestrator.decide()} as an
-unconditional pre-dispatch check would turn the project's current
-learned, soft SLA preference into the harder per-request guarantee
-originally proposed, and is a small, well-scoped change rather than new
-design work, since the signal already exists.
+Section~\ref{limitations} already discusses six specific limitations in detail (the
+trained \textbf{MiscalibrationClassifier}'s own accuracy being modest,
+residual degraded-network over-escalation, the meta-policy that never
+converged, synthetic queue/RTT/energy signals, serialised concurrent
+LLM diagnosis calls, and the per-request SLA check being a learned
+signal rather than a hard pre-dispatch gate). They are not repeated in
+full here. At the project level as a whole, six follow-on directions
+are the most immediate.
+
+First, \textbf{MiscalibrationClassifier} is now fitted on real,
+non-circular data, in both domains it was ever deployed to (Section~\ref{design-development-and-implementation}).
+The simulation-domain fit is what every evaluation number in this
+report uses by default, past that point. Its cross-validated accuracy
+is still modest, particularly for the STRESSED class (33\% precision).
+So the natural next step is not fitting it for the first time, but
+improving what is already fitted. The two most direct levers are
+collecting a larger simulation-domain sample, and using a richer
+feature set than the six-dimensional stress-plus-error-rate vector it
+currently sees.
+
+Second, replacing the synthetic queue-depth and RTT signals in the
+Gymnasium simulation with measurements pulled from the live
+multi-region Docker deployment would close the one sim-to-real gap this
+project has not yet validated directly. Inference latency itself is
+already measured on real hardware, so this signal is the remaining
+piece.
+
+Third, the residual 1.5\% over-escalation under sustained network
+degradation (Section~\ref{limitations}) is now small enough that the reward function
+is no longer the obvious place to attack it. Fitting the classifier
+already cut this from 21.5\%, without touching the reward at all
+(Section~\ref{misc-classifier-refit}). So the remaining question is whether a
+scenario-conditioned reward term would close the last 1.5\%, or simply
+trade it for a regression elsewhere. That is a hypothesis worth
+testing, not a diagnosed defect waiting on a known fix, and it should
+be evaluated the same way the reward-gradient fix was.
+
+Fourth, LiteLLM's and Portkey's routing strategies (Section~\ref{literature-survey}) are
+compared here only qualitatively, against their own documentation.
+Turning that into an empirical row in Section~\ref{evaluation-and-discussion} first requires
+deciding, fairly to both sides, how a provider-routing gateway's rule
+maps onto an edge/cloud decision. Section~\ref{evaluation-strategy} states this plainly,
+rather than presenting an invented mapping as already settled. Doing
+this is the most direct way to strengthen the ``beats the field, not
+only the papers'' claim this report makes.
+
+Fifth, \textbf{sla\_violation\_predicted} (Section~\ref{design-development-and-implementation}, Silver) is a
+computed signal that no decision path currently reads. Wiring it into
+\textbf{AgenticOrchestrator.decide()} as an unconditional pre-dispatch
+check would turn the project's current learned, soft SLA preference
+into the harder per-request guarantee originally proposed. Since the
+signal already exists, this is a small, well-scoped change, not new
+design work.
+
+Sixth, the Gold vector's 13 slots are fixed in code today. Adding a
+genuinely new kind of signal means editing
+\textbf{DynamicMetricRegistry.snapshot()}'s match-case, adding a field
+to \textbf{SilverFeatureVector}, and extending
+\textbf{GoldStateVector.from\_silver()} by hand (Section~\ref{design-development-and-implementation}). A cheap
+partial fix is to pre-allocate a handful of reserved, zero-masked slots
+beyond the 13 currently used, the same masking mechanism already applied
+to \textbf{calibration\_delta} and \textbf{error\_rate}. A new metric
+could then be wired to one of those slots through a name-to-slot lookup
+table, with no source-code edit. That covers any new metric until the
+reserved slots run out. Past that point the constraint moves to
+\textbf{PPONetwork}'s fixed input layer (\textbf{agent.py}), which
+cannot grow without reshaping its first weight matrix and retraining
+from scratch. So this direction buys a fixed number of free additions.
+It does not remove the ceiling.
 
 \hypertarget{closing-remarks}{%
 \subsection{Closing remarks}\label{closing-remarks}}
 
-The research question posed in Section 2.1 asked what a genuinely
-context-aware, closed-loop orchestration system buys over a static
-passive threshold. The bursty-traffic result (zero SLA violations
-against 59.5--60.5\% for every accuracy-preserving static baseline, at a
-seventh of the energy) is direct evidence for a specific answer: the gain
-is not uniform across every condition, and this report does not claim
-that it is, but it is largest when infrastructure is under the
-kind of stress that confidence-only systems have no way to see happening
-at all.
+The research question posed in Section~\ref{problem-statement} asked what a genuinely
+context-aware, closed-loop orchestration system buys over a static,
+passive threshold. The bursty-traffic figures set out above give a
+specific answer to that question, and they hold under conditions no
+confidence-only baseline can even observe. The gain is not uniform
+across every condition, and this report does not claim that it is. But
+it is largest exactly when infrastructure is under the kind of stress
+that confidence-only systems have no way to see happening at all.
