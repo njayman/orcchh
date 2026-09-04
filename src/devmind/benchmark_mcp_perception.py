@@ -1,11 +1,3 @@
-"""Benchmarks the MCP-pattern skill interface's per-request perception cost
-(Bronze snapshot -> Silver enrich -> Gold normalize -> AgenticOrchestrator.decide(),
-which exercises MCPSkillInterface.list_tools()/call() internally) against real
-DistilBERT edge-inference latency, using the exact same component wiring as the
-live gateway's CascadeController (gateway/app.py). Closes the gap flagged in the
-report's Conclusion: this cost was claimed to fit "well within the per-request
-perception budget" but was never separately measured.
-"""
 import statistics
 import time
 

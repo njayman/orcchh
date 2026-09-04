@@ -5,21 +5,23 @@ Existing cascading systems, namely BranchyNet, MSDNet, EdgeBERT and
 RouteLLM, route requests using fixed confidence thresholds or hardware
 timers. They do not consider live infrastructure states, such as cloud
 queue depth or network delay. The objective of this project is to build
-a context aware agentic gateway. This solution consists of an edge
-context protocol, a dynamic Medallion pipeline, MCP skills, intelligent
-PPO agents, a bidirectional feedback loop, and a policy orchestration
-layer. All these components help make routing decisions in real time.
+a context-aware agentic gateway. This solution consists of an edge
+context protocol, a dynamic Medallion pipeline, MCP skills, a PPO
+agent, and a bidirectional feedback loop, all working on a per-request
+basis in real time. A separate policy orchestration layer governs the
+fleet, deciding when to reuse, fine-tune or train a policy for a
+client. But this process runs at onboarding time.
 The PPO agent is a trained frozen policy. It was produced in an offline
 Gymnasium simulation with domain randomization. The policy is then used
 in the agentic gateway to make routing decisions. A static threshold
-baseline system escalates to cloud on every request under bursty and
+baseline system escalates to the cloud on every request under bursty and
 steady traffic. This proposed gateway system escalates far less, 0.5\%
 in bursty traffic and 1\% in steady traffic. It also removes SLA
-violations entirely under bursty load, against 59.5\% to 60.5\% for the
+violations entirely under bursty load, compared to 59.5\%-60.5\% for the
 static thresholds. The system was tested against five core baselines and
 eight baselines drawn from the literature in three traffic scenarios and
 a seven-run ablation study. Another ablation run compares a single
 shared frozen policy against a policy orchestration layer that can
 reuse, fine-tune or train a new policy for each client or scenario. This
 policy orchestration layer is also configured to use LLMs as an
-oversight mechanism which can escalate its own decision when necessary.
+oversight mechanism that can escalate its own decision.

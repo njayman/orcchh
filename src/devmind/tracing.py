@@ -6,10 +6,6 @@ from fastapi import FastAPI
 
 
 def setup_tracing(service_name: str, app: FastAPI) -> None:
-    # Opt-in: only wired up when OTEL_EXPORTER_OTLP_ENDPOINT is set (the GKE+Jaeger
-    # deployment sets it; local dev, self-checks, and the Docker/GCP path don't, so
-    # they're unaffected). BatchSpanProcessor already degrades gracefully if the
-    # collector is unreachable -- spans get dropped, not raised as request errors.
     endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
     if not endpoint:
         return
@@ -31,9 +27,6 @@ def setup_tracing(service_name: str, app: FastAPI) -> None:
 
 
 def demo() -> None:
-    # Neither branch should raise: unset must no-op cleanly, and set must wire up
-    # instrumentation even though nothing is actually listening at that address
-    # (span export is async/batched, so a dead collector doesn't surface here).
     os.environ.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
     setup_tracing("demo-service", FastAPI())
 

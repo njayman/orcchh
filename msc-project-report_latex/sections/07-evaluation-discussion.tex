@@ -11,12 +11,11 @@ are recorded separately, in
 \textbf{evaluation/run5-silver-ablation-retrained-2026-09-02\_01-22-39.json}
 and
 \textbf{evaluation/run7-governance-retrained-2026-09-02\_01-26-14.json},
-because they are driven by their own harness entry points rather than
+because they are driven by their own harness entry points instead of
 by the main sweep.
 
 Three earlier runs are kept in the same directory for traceability.
-They are cited only where the contrast itself is the finding, never as
-headline numbers here.
+They are cited only where the contrast itself is the finding.
 \textbf{evaluation/2026-08-20\_06-40-51.json} records the undertrained
 policy, at \textbf{fallback\_rate=1.000} in all three scenarios.
 \textbf{evaluation/2026-08-20\_08-42-51.json} records the state just
@@ -32,10 +31,13 @@ comparison log instead, and are cited there.
 \subsection{Evaluation strategy}\label{evaluation-strategy}}
 
 The evaluation is built around one design principle. Every comparison
-below holds the models, the dataset, and the traffic simulation fixed,
-and varies only the routing policy. So a difference in the numbers can
-only come from the routing decision itself, not from a different
-model, a different dataset, or different hardware. This is why the
+below uses the same models, the same dataset and the same scenario
+settings, and only the routing policy changes. The simulator's own
+random stress draws are not seeded, so each policy's environment gets
+its own random sequence, but the setup
+and the request order stay the same. A difference in the numbers
+reflects the routing decision, not a different model, a different
+dataset, or different hardware. This is why the
 reported numbers are not the original papers' own published figures.
 Section~\ref{literature-survey} already establishes those are not directly comparable, since
 they use different datasets, different tasks, and different hardware.
@@ -68,12 +70,12 @@ Metric & Definition and rationale \\
 \midrule
 \endhead
 \textbf{accuracy} & Mean correctness (edge or cloud model's prediction against the ground-truth label) over every served request. The primary quality signal, and every routing decision that avoids the more accurate cloud model risks this number. \\
-\textbf{p95\_latency} & 95th percentile of per-request latency (edge inference time, or cloud queue-wait + RTT + cloud inference time, depending on the action taken). The 95th percentile is used instead of the mean because SLA compliance is a tail-latency problem, not an average-case one. A policy with a low mean but a heavy tail still fails users at the tail. \\
+\textbf{p95\_latency} & 95th percentile of per-request latency (edge inference time, or cloud queue-wait + RTT + cloud inference time, depending on the action taken). The 95th percentile is used instead of the mean because SLA compliance is a tail-latency problem, as opposed to an average-case one. A policy with a low mean but a heavy tail still fails users at the tail. \\
 \textbf{sla\_violation\_rate} & Fraction of requests whose latency exceeded \textbf{scenario.sla\_budget\_ms} (300ms by default). This is the metric a per-request SLA check is specifically designed to keep low. It is the direct evidence for or against the SLA-budget contribution claimed in Section~\ref{contributions}. \\
-\textbf{escalation\_rate} & Fraction of requests routed to the cloud. Read alongside SLA violation and accuracy, not alone: a policy can trivially drive this to 0 (always\_edge) or 1 (always\_cloud). It only becomes informative in combination with the other metrics. \\
-\textbf{energy\_mj} & Cumulative energy proxy summed over the episode: an edge request costs $0.5 + 0.3 \times \text{cpu\_stress}$, a cloud request costs $2.0 + 0.1 \times \text{cloud\_queue\_depth}$ (both in the same proxy units, \textbf{environment.py}'s \textbf{step()}). This is a simulated proxy, not a measurement from real hardware power counters (Intel RAPL was named in the original proposal but never wired in, see Limitations). It captures the right qualitative pattern (queue-length-dependent cloud cost, stress-dependent edge cost) without claiming to be a calibrated joule measurement. \\
-\textbf{fallback\_rate} & Fraction of requests where the entropy/OOD safety fallback (Section~\ref{design-development-and-implementation}) overrode the policy's own sampled action. This is the metric that caught the undertrained-policy bug (Section~\ref{design-development-and-implementation}): a \textbf{fallback\_rate} of 1.000 means the reported numbers are actually the fixed fallback rule's behaviour, not the trained policy's, regardless of which policy name is on the row. \\
-\textbf{sla\_margin\_ms} & Mean of the edge device's own self-reported \textbf{sla\_margin\_ms} (Section~\ref{design-development-and-implementation}) across requests where an edge report exists. Distinct from \textbf{sla\_violation\_rate}: this is the edge's own local claim about SLA feasibility, not the ground-truth outcome, so a persistent gap between the two is itself diagnostic of miscalibration. \\
+\textbf{escalation\_rate} & Fraction of requests routed to the cloud. Read alongside SLA violation and accuracy, instead of alone: a policy can trivially drive this to 0 (always\_edge) or 1 (always\_cloud). It only becomes informative in combination with the other metrics. \\
+\textbf{energy\_mj} & Cumulative energy proxy summed over the episode: an edge request costs $0.5 + 0.3 \times \text{cpu\_stress}$, a cloud request costs $2.0 + 0.1 \times \text{cloud\_queue\_depth}$ (both in the same proxy units, \textbf{environment.py}'s \textbf{step()}). This is a simulated proxy. It is not a measurement from real hardware power counters. It captures the right qualitative pattern (queue-length-dependent cloud cost, stress-dependent edge cost) without claiming to be a calibrated joule measurement. \\
+\textbf{fallback\_rate} & Fraction of requests where the entropy/OOD safety fallback (Section~\ref{design-development-and-implementation}) overrode the policy's own sampled action. This is the metric that caught the undertrained-policy bug (Section~\ref{design-development-and-implementation}): a \textbf{fallback\_rate} of 1.000 means the reported numbers are actually the fixed fallback rule's behaviour, as opposed to the trained policy's, regardless of which policy name is on the row. \\
+\textbf{sla\_margin\_ms} & Mean of the edge device's own self-reported \textbf{sla\_margin\_ms} (Section~\ref{design-development-and-implementation}) across requests where an edge report exists. Distinct from \textbf{sla\_violation\_rate}: this is the edge's own local claim about SLA feasibility, as opposed to the ground-truth outcome. So a persistent gap between the two is itself diagnostic of miscalibration. \\
 \textbf{trust\_score} & Mean of the edge device's slow EWMA trust signal (Section~\ref{design-development-and-implementation}) across the episode. Read as a sanity check on the Bidirectional Loop specifically: if it never moves across an episode, the backward loop is not doing anything observable in that scenario. \\
 \bottomrule
 \end{longtable}
@@ -89,14 +91,17 @@ clipped to $[-1, 1]$. The weights $(w_{\text{acc}}, w_{\text{sla}},
 w_{\text{energy}}, w_{\text{lat}})$ are normalised from
 \textbf{ScenarioConfig.reward\_weights}, with default $(0.4, 0.3, 0.2,
 0.1)$. \textbf{perception\_cost} is a small fixed penalty (0.02,
-\textbf{environment.py}). It is charged only when the agent chose
+\textbf{environment.py}). It is charged only when the agent chooses
 \textbf{QUERY\_EXTENDED\_CONTEXT}, and it is subtracted after the four
 weighted terms, before the outer clip.
 
 Evaluating on the same four axes the policy was trained against is
-deliberate. It lets a result be read two ways. Either the policy
-generalised its training objective to unseen traffic, or it overfit to
-the reward, and the evaluation is just re-measuring that same reward.
+deliberate, following standard practice for separating a reinforcement
+learning policy's generalisation from its overfitting to the training
+distribution (Cobbe et al., 2019). It lets a result be read two ways.
+Either the policy generalised its training objective to unseen traffic,
+or it overfit to the reward, and the evaluation is just re-measuring
+that same reward.
 The remaining four metrics (escalation rate, fallback rate, SLA margin
 and trust score) exist to tell those two readings apart. None of them
 is a reward term the policy was ever optimised against directly.
@@ -105,9 +110,9 @@ is a reward term the policy was ever optimised against directly.
 \subsubsection{Scenario design}\label{scenario-design}}
 
 Four \textbf{ScenarioConfig} presets (\textbf{environment.py}) each
-stress a different axis of the state space. That way, a policy's
-failure mode can be traced to a specific kind of infrastructure stress,
-rather than just ``traffic in general'':
+stresses a different axis of the state space. That way, a policy's
+failure mode can be traced to a specific stress axis (queue depth,
+RTT, or edge health), in place of just ``traffic in general'':
 
 {\small\setlength{\tabcolsep}{4pt}
 \begin{longtable}{p{1.9cm}p{2.3cm}p{2.2cm}p{1.4cm}p{3.4cm}} \caption{The
@@ -125,17 +130,18 @@ network & 4,000/min flat & 40$\to$800ms for the full episode & 0.10 &
 RTT alone. Deliberately holds request rate and edge health at steady
 values so a poor result cannot be blamed on volume \\ Held-out (Ablation
 Run 6) & 2,000$\to$30,000/min, burst covers 15--75\% & 100$\to$1,200ms
-for the full episode & 0.40 (degrade prob.\ 0.15) & All axes
-simultaneously, at a severity never sampled during domain-randomised
-training. Tests generalisation, not memorisation of the training
-distribution \\ \bottomrule \end{longtable} }
+for the full episode & 0.40 (degrade prob.\ 0.15) & Burst rate,
+degraded RTT and service time pushed past training severity; edge
+stress and degrade probability held at its edge. Tests generalisation
+beyond the training distribution \\ \bottomrule \end{longtable} }
 
-The held-out scenario is not a fifth entry in the same family. Every
-field in it is deliberately chosen to sit outside the range that
-\textbf{randomize\_scenario()} (\textbf{trainer.py}) samples during
-training. So a good result there is evidence the policy learned the
-underlying decision problem, not just the training scenarios
-themselves.
+The held-out scenario is not a fifth entry in the same family. Most of
+its fields sit outside the range \textbf{randomize\_scenario()}
+(\textbf{trainer.py}) samples during training, burst rate, degraded
+RTT and cloud service time among them. A few, like edge stress and
+degrade probability, sit right at the edge of that range instead. So
+a good result there is evidence the policy learned the underlying
+decision problem, beyond just the training scenarios themselves.
 
 \hypertarget{baseline-design}{%
 \subsubsection{Baseline design}\label{baseline-design}}
@@ -155,8 +161,8 @@ justify the extra machinery at all.
 trained weights, or datasets. None of those eight papers evaluated on
 the Jigsaw toxicity task with a DistilBERT/BERT-large edge/cloud pair,
 so citing their own published numbers here would compare different tasks
-and hardware, not different routing policies. Each is instead a faithful
-re-implementation of that paper's \emph{routing rule}. It is run
+and hardware, rather than different routing policies. Each baseline is
+instead a faithful re-implementation of that paper's \emph{routing rule}. It is run
 through the exact same harness (same models, same dataset, same
 traffic simulation) as every other row in the results tables that
 follow. That way, the only variable being compared is the policy
@@ -186,8 +192,8 @@ connectivity & Escalates if confidence $< \tau$ \emph{and} predicted RTT
 is within a fixed connectivity limit \\
 \textbf{proteus\_\-accuracy\_\-floor} & Enforce a minimum accuracy
 target via Lagrangian RL & Escalates whenever confidence is below a
-fixed accuracy target (the accuracy-floor \emph{behaviour}, not the
-Lagrangian training procedure that produces it in the original paper) \\
+fixed accuracy target (the accuracy-floor \emph{behaviour} rather
+than the Lagrangian training procedure that produces it in the original paper) \\
 \textbf{splitwise\_\-queue\_\-energy} & Phase-aware scheduling under
 queue and power constraints & Escalates only if predicted queue wait
 \emph{and} average resource stress across all five stress channels are
@@ -195,34 +201,34 @@ both below fixed limits \\ \textbf{routellm\_\-learned\_\-router} & A
 router trained from preference data to pick between a strong and a weak
 model & A real \textbf{sklearn.LogisticRegression}, fitted on this
 project's own simulated rollout data (confidence $\to$ correctness),
-mirroring RouteLLM's learned rather than rule-based approach \\
+mirroring RouteLLM's learned, as opposed to rule-based, approach \\
 \textbf{nsga2\_\-pareto\_\-rule} & Evolutionary multi-objective
 optimisation over quality, latency, and cost & A grid search over 18
 threshold values that selects whichever $\tau$ maximises a weighted
 accuracy/SLA/energy score. The multi-objective \emph{outcome} NSGA-II is
-built to reach, found here by search rather than a genetic algorithm \\
+built to reach, found here by search instead of a genetic algorithm \\
 \bottomrule \end{longtable} }
 
 \textbf{The two production LLM gateways (Section~\ref{literature-survey}) are not in this
-table, and this is disclosed rather than implied.} LiteLLM's and
+table, and this is disclosed, as opposed to implied.} LiteLLM's and
 Portkey's routing strategies were checked against their own
-documentation, and are compared \emph{qualitatively} in Section~\ref{literature-survey}'s
-comparison table. But neither was re-implemented as a callable policy
+documentation, and were compared \emph{qualitatively} in Section~\ref{literature-survey}'s
+comparison table. But neither of these options were re-implemented as a callable policy
 in \textbf{evaluation.py} and run through this harness. Tracing every
 baseline registered in \textbf{evaluate\_literature\_baselines()}
 confirms this directly.
 
 Doing this fairly would need more care than the eight academic
 baselines above did. LiteLLM and Portkey route between cloud model
-\emph{providers}, not between an edge device and a cloud fallback. So
+\emph{providers}, rather than between an edge device and a cloud fallback. So
 their rules would first need a deliberate translation decision, for
 example treating \textbf{always\_edge} as one ``provider'' and
 \textbf{always\_cloud} as another for a weighted split. That
 translation has genuine room to be done unfairly to either side. It
-was not attempted under this project's timeline, so no empirical row
+was not attempted under this project's timeline, so no empirical evidence
 is claimed for either gateway here. The comparison against them rests
-on the qualitative evidence in Section~\ref{literature-survey}, not a number in this
-section. Adding a fair empirical version is named as a concrete next
+on the qualitative evidence in Section~\ref{literature-survey}. It does not rest on a
+number in this section. Adding a fair empirical version is named as a concrete next
 step in the Conclusion.
 
 \hypertarget{ablation-design}{%
@@ -230,7 +236,7 @@ step in the Conclusion.
 
 Each ablation run changes one component relative to
 \textbf{run1\_full}. That way, a difference in its numbers isolates
-that one component's contribution, rather than mixing several changes
+that one component's contribution, instead of mixing several changes
 together:
 
 {\small\setlength{\tabcolsep}{4pt}
@@ -249,8 +255,7 @@ the same traffic \\ 3 (\textbf{calibration\_\-delta}) &
 Confidence threshold plus a fixed override (\textbf{calibration\_delta}
 $>0.15$ forces escalation) & Whether the Edge Context Protocol's
 calibration signal helps \emph{as an add-on to a threshold rule},
-isolated from whether it helps when fed to a learned policy (run1\_full
-already answers the latter) \\ 4 (\textbf{no\_\-reflect}) &
+isolated from whether it helps when fed to a learned policy  \\ 4 (\textbf{no\_\-reflect}) &
 \textbf{run1\_full}'s trained policy, but
 \textbf{env.use\_reflect=False} disables the backward loop & The
 Bidirectional Loop's contribution, with everything else (policy,
@@ -278,13 +283,13 @@ three-way comparison of static, conditional, and agent-driven Silver
 enrichment. This isolates the dynamic Medallion pipeline's own
 contribution, the same way Run 4 isolates the bidirectional loop's.
 All three conditions reuse \textbf{run1\_full}'s frozen policy,
-unchanged. Only what \textbf{SilverEnricher.enrich()} reveals to it
+unchanged. Only what \textbf{SilverEnricher.enrich()} reveals to the pipeline
 varies. \textbf{Static} always sets \textbf{calibration\_delta} and
 \textbf{error\_rate}, regardless of \textbf{operational\_state}.
 \textbf{Conditional} is the shipped behaviour. It applies the same
 reveal rule as \textbf{run1\_full}. Its numbers still differ a little
 from Table~\ref{tab:steady}'s, because Run 5 is a separate pass through
-the harness, not because the two behave differently. \textbf{Agent-driven} withholds both signals by default. It
+the harness. The two do not behave differently. \textbf{Agent-driven} withholds both signals by default. It
 reveals them only when the policy's own first-pass action is
 \textbf{QUERY\_EXTENDED\_CONTEXT}. At that point,
 \textbf{InferenceGatewayEnv.peek\_extended\_silver()} recomputes Silver
@@ -305,9 +310,9 @@ dominates the other two across all three scenarios.
 all three reveal regimes without tripping the entropy/OOD safety net,
 including the two it was never trained under. This is evidence that
 the 13-slot masked representation generalises across different masking
-\emph{patterns}, not just masking \emph{amounts}. But the effect size
-is small enough that this should be read as a robustness finding, not
-as a case for preferring one Silver strategy over another based on
+\emph{patterns}, beyond just masking \emph{amounts}. But the effect size
+is small enough that this should be read as a robustness finding,
+as opposed to a case for preferring one Silver strategy over another based on
 these three scenarios alone.
 
 \hypertarget{reproducibility}{%
@@ -321,7 +326,7 @@ remaining \textbf{EvalMetrics} fields via
 \textbf{\_metrics\_to\_dict()}) to \textbf{evaluation/}, timestamped
 when the run completed. The headline numbers below come from one
 specific, named file (\textbf{2026-09-02\_00-47-07.json}, referenced at
-the top of this section), not a cherry-picked run among several. Runs
+the top of this section). It is not a cherry-picked run among several. Runs
 5 and 7 are taken from the two companion files named there.
 
 Every other timestamped file in the same directory is either
@@ -329,13 +334,13 @@ superseded by those, or cited explicitly by name where its contrast is
 itself the finding. That covers the undertraining and reward-gradient
 bugs (Section~\ref{design-development-and-implementation}), and the untrained-heuristic comparison (Section~\ref{misc-classifier-refit}). The fitted-classifier artefacts in the same directory
 (\textbf{.joblib} models, their \textbf{-meta.json} metrics, and the
-cached \textbf{.npz} training data) are inputs to Section~\ref{misc-classifier-refit}, not
-results in their own right. Each policy is run once per scenario
+cached \textbf{.npz} training data) are inputs to Section~\ref{misc-classifier-refit}.
+They are not results in their own right. Each policy is run once per scenario
 (\textbf{n\_runs=1}, \textbf{max\_samples=1000}) against real
-HuggingFace CPU inference, not a simulated accuracy model. So the
+HuggingFace CPU inference, rather than a simulated accuracy model. So the
 accuracy numbers reflect the genuine DistilBERT/BERT-large edge/cloud
-pair's real behaviour on held-out Jigsaw samples, not a synthetic
-approximation of it.
+pair's real behaviour on held-out Jigsaw samples. It is not a
+synthetic approximation of it.
 
 \hypertarget{baselines-and-scenarios}{%
 \subsection{Baselines and scenarios}\label{baselines-and-scenarios}}
@@ -352,8 +357,8 @@ loop. It is compared against five core baselines
 \textbf{splitwise\_\-queue\_\-energy}, a fitted
 logistic-regression \textbf{routellm\_\-learned\_\-router}, and
 \textbf{nsga2\_\-pareto\_\-rule}). Three traffic scenarios are used here. They are:
-1. a baseline steady scenerio with 4,000 requests/minute.
-2. a burst scenerio ranging from 4,000 up to roughly 22,000 requests/minute
+1. a baseline steady scenario with 4,000 requests/minute.
+2. a burst scenario ranging from 4,000 up to roughly 22,000 requests/minute
 3. a degraded-network scenario that holds RTT at 800ms for the full run.
 
 \hypertarget{steady-traffic}{%
@@ -380,15 +385,15 @@ routellm\_learned\_router & 0.790 & 75.6 & 0.000 & 0.000 & 117.5 \\
 \end{longtable}
 
 Under steady traffic, every policy holds zero SLA violations. So the
-columns that actually separates policies here are escalation rate and
-energy,. \textbf{run1\_full} escalates just 1\% of the
+columns that separate policies here are escalation rate and
+energy. \textbf{run1\_full} escalates just 1\% of the
 time which keeps it close to \textbf{always\_edge}'s cost profile
-(75.8ms p95, 120.0mJ against 73.5ms/119.1mJ). It achieves this feat while still keeping the option to escalate on the rare request that actually needs it.
+(75.8ms p95, 120.0mJ against 73.5ms/119.1mJ), while still keeping the option to escalate on the rare request that actually needs it.
 \textbf{static\_tau\_0.6} reaches marginally higher accuracy (0.805
 against 0.785), but only by escalating on every request and spending
 3.5$\times$ the energy. When there is no infrastructure stress, a
 continuous 13-dimensional policy surface does not have much to
-differentiate on. The policy correctly learns to behave close to the
+differentiate between. The policy correctly learns to behave close to the
 cheap edge-only baseline, instead of escalating needlessly.
 
 \hypertarget{bursty-traffic}{%
@@ -432,9 +437,12 @@ edge-favouring baselines (\textbf{always\_edge} and
 \textbf{routellm\_\-learned\_\-router}, which converged to a
 near-always-edge policy) avoid SLA violations too, and match
 \textbf{run1\_full}'s own accuracy exactly, all three at 0.790. But
-\textbf{run1\_full} still keeps the option to escalate on whichever
-requests genuinely need it, instead of committing to one fixed
-strategy. This is the main design challenge for the entire architecture. The setting takes an adaptable routing function in the presence of infrastructure stress, and the baselines it beats are naive rules and a learned router fitting.
+\textbf{run1\_full} still keeps the option to escalate for whichever
+requests need it, instead of committing to one fixed
+strategy. This is the main design challenge for the entire architecture.
+The setting takes an adaptable routing function in the presence of
+infrastructure stress, and the baselines it beats are naive rules
+and a learned router fitting.
 
 \hypertarget{degraded-network}{%
 \subsubsection{Degraded network}\label{degraded-network}}
@@ -466,7 +474,7 @@ not a metric failure. Under bursty traffic, the same metric separates
 policies cleanly. \textbf{always\_edge} sits at
 \textbf{sla\_violation\_rate=0.000} against 0.595 for
 \textbf{always\_cloud} (Table~\ref{tab:bursty}). So the ceiling here comes
-from the 800ms RTT, not from the measure itself.
+from the 800ms RTT. It does not come from the measure itself.
 
 What the scenario does still measure is whether a policy recognises
 that escalating cannot help. \textbf{run1\_full} now escalates only
@@ -475,7 +483,7 @@ that escalating cannot help. \textbf{run1\_full} now escalates only
 latency and 4.5mJ of their energy, at the same 0.790 accuracy. It
 matches the edge-favouring baselines' cost profile without giving up
 their accuracy, while keeping the option to escalate.
-The residual 1.5\% is reported as a discussed limitation in Section~\ref{limitations}, not hidden behind the scenario's own SLA-violation ceiling.
+The residual 1.5\% is reported as a discussed limitation in Section~\ref{limitations}. It is not hidden behind the scenario's own SLA-violation ceiling.
 
 \begin{figure}[htbp]
 \centering
@@ -497,7 +505,7 @@ eye. It also makes visible a pattern that is easy to miss when reading
 the per-scenario tables on their own. Two of the three scenarios are
 saturated for every policy tested. Steady stays at 0.000 and degraded
 network stays at 1.000. So bursty is not just one of three
-equally-weighted data points. It is the only scenario in this
+equally weighted data points. It is the only scenario in this
 comparison where the routing policy's own behaviour actually decides
 the SLA outcome.
 
@@ -530,7 +538,7 @@ no matter the traffic condition. Run 1 (the full system) and Run 4
 trained PPO policy. That is exactly what Run 2 vs.\ Run 1 and Run 3
 vs.\ Run 1 are isolating. Runs 5--7 use different comparison axes (Silver
 enrichment strategy, held-out traffic, per-client governance
-respectively) and are reported in their own tables rather than here.
+respectively) and are reported in their own tables, instead of here.
 Source: \textbf{evaluation/2026-09-02\_00-47-07.json}.}
 \label{fig:ablation-comparison}
 \end{figure}
@@ -572,18 +580,18 @@ Degraded & run5c\_agent\_driven\_silver & 0.800 & 869.3 & 1.000 & 0.045 & 130.7 
 \end{longtable}
 
 \textbf{Run 2 (confidence only, the RouteLLM-equivalent condition)}
-escalates on almost every request under bursty and degraded traffic.
+escalates on almost every request under bursty and degraded traffic conditions.
 This confirms that a single confidence signal cannot see
 infrastructure stress at all. It is blind to the whole failure class
 this project targets.
 
 \textbf{Run 3 (adds calibration\_delta)} behaves almost identically to
-Run 2. That is a genuine, reportable finding, not a null result to
-leave out. The Edge Context Protocol's value in this architecture
+Run 2. It is not a null result to leave out.
+The Edge Context Protocol's value in this architecture
 comes from feeding calibration state to a learned policy that can
 weigh it against everything else, the way \textbf{run1\_full} does. It
 does not come from adding calibration state as one more input to an
-otherwise-unchanged confidence threshold.
+otherwise unchanged confidence threshold.
 
 \textbf{Run 4 (no reflect, i.e.\ the backward loop disabled)} now
 tracks \textbf{run1\_full} closely in every scenario, including
@@ -600,7 +608,7 @@ escalation rate of the three modes under degraded network (0.005 vs.\
 pipeline's conditional enrichment is not just architecturally
 motivated. It is also the cheapest of the three modes to run. It does
 not lead on accuracy, where agent-driven is ahead in two scenarios. The
-case for it is cost rather than a clean sweep.
+case for it is cost, rather than a clean sweep across every metric.
 
 \hypertarget{ablation-run-7}{%
 \subsection{Ablation Run 7: governance-layer
@@ -640,7 +648,7 @@ client\_newco        & 0.820 & 82.9  & 0.000 & 0.000 & 62.3 \\
 
 \textbf{Deterministic rule.} \textbf{client\_streamforge},
 \textbf{client\_nhs}, and \textbf{client\_newco} were each judged to
-already meet their tolerance thresholds, so each REUSEs the seed
+already meet their tolerance thresholds, so each REUSE the seed
 policy unmodified. \textbf{client\_babcock} (degraded-network
 scenario, where \textbf{sla\_violation\_rate=1.00} is structural,
 since RTT alone exceeds the SLA budget regardless of the policy) was
@@ -663,7 +671,7 @@ The original review's decisions and justifications stay archived in
 \textbf{evaluation/ablation-run-7-governance-review-2026-08-24.json}.
 
 \hypertarget{misc-classifier-refit}{%
-\subsection{MiscalibrationClassifier: a trained refit, not just a threshold}\label{misc-classifier-refit}}
+\subsection{MiscalibrationClassifier}\label{misc-classifier-refit}}
 
 The seven-run ablation above (Table \ref{tab:ablation-results}) and
 Run 7 (Section~\ref{ablation-run-7}) use the trained \textbf{MiscalibrationClassifier},
@@ -709,12 +717,12 @@ inside the simulation's own synthetic ``stressed'' value range
 (\textbf{rng.uniform(0.6, 0.95)}). So it reports STRESSED, and reveals
 \texttt{calibration\_delta}/\texttt{error\_rate} to the policy, on a
 much larger share of requests than the trained classifier does. The
-policy was trained to treat that reveal as worth escalating on. So the
+policy was trained to treat that reveal as worth escalating. So the
 heuristic's over-firing drives escalation far higher, even when the
 rest of the policy is held identical.
 
 The same swap, repeated against the retrained policy, isolates how
-much of this is really about the classifier, versus about the policy
+much of this is really about the classifier, versus the policy
 having adapted at all. Heuristic-on-retrained-policy escalates at
 1.0--3.5\% across the four scenarios. That is close to
 trained-on-retrained-policy's 0.5--1.5\% (Table
@@ -748,25 +756,33 @@ comparison log this table is drawn from are in
 \subsection{Limitations}\label{limitations}}
 
 \begin{itemize}
-\item \textbf{The trained MiscalibrationClassifier's own accuracy is
-modest.} 54.6\% balanced accuracy and 33.2\% STRESSED precision
-(Section~\ref{design-development-and-implementation}) is a noisier per-request signal than the untrained
-heuristic it replaced as the default. The large routing-behaviour
-change documented above (Section~\ref{misc-classifier-refit}) is real and reproducible. But it
-shows that the change matters, not that the trained classifier is
-unambiguously more correct than the heuristic it replaced.
-\item \textbf{Degraded-network over-escalation, largely resolved by
-the classifier retrain, not fully eliminated.} \textbf{run1\_full} now
-escalates 1.5\% of the time in a scenario where escalating provably
-cannot improve the SLA outcome. That is down from 81.5\% before the
-reward-gradient fix, and 21.5\% before the classifier retrain (Section~\ref{misc-classifier-refit}), a substantial further improvement. But the residual 1.5\%
-confirms the policy has not learned a hard zero-escalation rule for
-this condition. It has only learned a strong preference against it.
-\item \textbf{The learned orchestrator meta-policy never converged}
-(Section~\ref{design-development-and-implementation}). The LLM governance review that replaced it depends on a
-single local model (Ollama, \textbf{gemma4:12b-it-qat}), with no
-second provider implemented. That is a deliberate YAGNI choice, but it
-is also a single point of dependency for that specific capability.
+\item \textbf{The trained MiscalibrationClassifier's performance is somewhat
+low.} It achieves a balanced accuracy of 54.6\% and a precision on
+STRESSED of 33.2\% (Section~\ref{design-development-and-implementation}).
+This is a much noisier per-request signal compared to that of the
+untrained heuristic that was taken as the default. Still, this only
+demonstrates that such a change matters. This doesn't demonstrate that
+the trained classifier clearly outclasses the heuristic it
+substituted.
+\item \textbf{The classifier retraining essentially solved the
+degraded-network over-escalation issue. It was largely fixed, though
+not quite completely wiped out.} For \textbf{run1\_full}, in a
+scenario where escalating provably cannot improve the SLA outcome,
+the run now escalates only 1.5\% of the time. This is a significant
+step up from 21.5\% before the classifier retraining
+(Section~\ref{misc-classifier-refit}) and 81.5\% before the
+reward-gradient fix which is a substantial further improvement. But that
+remaining 1.5\% shows the policy hasn't learned a hard zero-escalation
+rule for this situation - it has only picked up a strong preference
+against it.
+\item \textbf{The meta-policy learned orchestrator couldn't converge
+to a final state, even after long attempts}
+(Section~\ref{design-development-and-implementation}). The new review
+of LLM governance which was meant to replace it only uses one local
+model (Ollama, \textbf{gemma4:12b-it-qat}) as its dependency and does
+not have any alternate second provider in place. This was a
+deliberate YAGNI choice, but it also means that capability rests on a
+single point of dependency.
 \item \textbf{Queue depth, RTT, and energy remain synthetic} in the
 Gymnasium simulation. Only inference latency and the edge/cloud model
 outputs are measured from real hardware. The sim-to-real gap for those
@@ -774,19 +790,16 @@ synthetic signals has not been independently validated against the live
 multi-region deployment.
 \item \textbf{Concurrent multi-client LLM calls serialise} on a single
 queue consumer in \textbf{EscalationDiagnosisMonitor}. This is a
-documented, deliberate simplification, not an oversight. There is a
+documented, deliberate simplification. There is a
 noted upgrade path (per-client \textbf{asyncio.create\_task} with an
 in-flight guard), but it was not built, because Ollama itself already
 serves concurrent requests without issue at this project's traffic
 volumes.
-\item \textbf{The per-request SLA check is a learned signal, not a hard
-gate.} \textbf{sla\_violation\_predicted} (Section~\ref{design-development-and-implementation}, Silver) is
-computed but never read by any decision path. The SLA-awareness this
+\item \textbf{The per-request SLA check is a learned signal.} \textbf{sla\_violation\_predicted} (Section~\ref{design-development-and-implementation}, Silver) is
+computed without being read by any decision path. The SLA-awareness this
 report demonstrates empirically (Section~\ref{baselines-and-scenarios}'s bursty-traffic result)
 comes from the policy learning to weigh \textbf{sla\_remaining} and
-\textbf{predicted\_rtt} against the reward's SLA term, not from a
-deterministic pre-dispatch block on requests already guaranteed to
-breach the deadline. Wiring the computed signal into
+\textbf{predicted\_rtt} against the reward's SLA term. Wiring the computed signal into
 \textbf{AgenticOrchestrator.decide()} as an unconditional check would
 close this gap directly.
 \end{itemize}

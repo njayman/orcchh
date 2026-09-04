@@ -1,17 +1,3 @@
-"""Retrains MiscalibrationClassifier for the domain it's actually deployed
-into by the offline evaluation: the Gymnasium simulation's synthetic stress
-generator, not real hardware. The earlier real-hardware-trained classifier
-(misc_classifier_fit_experiment.py) turned out not to transfer -- its decision
-boundary, tuned on real psutil value ranges, predicted NOMINAL on ~100% of
-simulated inputs, because the simulation's synthetic stress values live on a
-different scale entirely.
-
-Same non-circular methodology as before: labels come only from real observed
-accuracy (real DistilBERT inference against real Jigsaw labels) relative to
-an idle baseline, never from the resource-stress readings themselves. Only
-the *feature distribution* changes -- synthetic stress drawn with the same
-formula environment.py's _build_bronze() uses, instead of real psutil reads.
-"""
 from __future__ import annotations
 
 import json
@@ -41,8 +27,6 @@ class Sample:
 
 
 def draw_simulated_stress(rng: np.random.Generator, edge_stress_prob: float, load_pct: float = 1.0) -> ResourceStress:
-    # Mirrors environment.py's InferenceGatewayEnv._build_bronze() exactly, so the
-    # trained classifier's feature distribution matches what it will actually see.
     return ResourceStress(
         cpu=rng.uniform(0, 0.3) * load_pct if rng.uniform() > edge_stress_prob else rng.uniform(0.6, 0.95),
         thermal=rng.uniform(0, 0.2) + 0.1 * load_pct
@@ -110,10 +94,6 @@ def main() -> None:
     dataset = load_task_dataset("toxicity", max_samples=30000)
     samples = dataset.test if len(dataset.test) > 200 else (dataset.test * 50)
 
-    # edge_stress_prob values span the scenarios actually used in evaluation:
-    # steady/bursty/degraded_network default to 0.1, held_out uses 0.4 (the
-    # highest configured anywhere) -- go further to guarantee real coverage
-    # of the DEGRADING region at these synthetic value ranges.
     phases = [
         ("idle", 0.0, 3000),
         ("low (steady/bursty/degraded_network)", 0.1, 6000),

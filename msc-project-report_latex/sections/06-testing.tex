@@ -8,7 +8,7 @@ used throughout development. Both were chosen to fit a project built by
 one developer on a fifteen-week timeline.
 
 Two further things shaped how this section and Section~\ref{evaluation-and-discussion} are
-structured, not just what they test.
+structured, beyond just what they test.
 
 First, this project follows Krishnamachari's (2026) checklist for
 defensible empirical results. Several items on that checklist map
@@ -16,13 +16,13 @@ directly onto Section~\ref{evaluation-and-discussion}'s design. Strong, named ba
 instead of a single straw-man comparison. Five core baselines plus
 eight literature re-implementations are run against the proposed
 system (Section~\ref{evaluation-strategy}). Multiple regimes are tested instead of one
-operating point, using three traffic scenarios. And the report
-states both success and failures of a method. Section~\ref{limitations} discloses
-the degraded-network over-escalation limitation rather than smoothing
-it over.
+operating point, using three traffic scenarios. The report
+states both success and failure of a method. Section~\ref{limitations} discloses
+the degraded-network over-escalation limitation instead of
+downplaying it.
 
 Second, self-check correctness and live-traffic testing are kept as
-genuinely separate activities in this section. A passing self-check
+separate activities in this section. A passing self-check
 suite shows that a component behaves as designed in isolation, but
 whether the deployed system behaves the same way under real network
 calls, real models, and real timing is a separate question that
@@ -41,7 +41,7 @@ that would break silently if the logic regressed. For example,
 \textbf{edge.py}'s self-check verifies that
 \textbf{compute\_calibration\_delta()} returns a signed correction.
 \textbf{agent.py}'s self-check verifies that
-\textbf{is\_ood()} needs two anomalous slots, not one, and that a stale
+\textbf{is\_ood()} requires two anomalous slots at once, and that a stale
 \textbf{last\_fallback\_reason} is cleared on the next non-fallback
 decision. \textbf{orchestrator.py}'s self-check verifies, among other
 things, that a client with an explicit threshold override is not moved
@@ -51,10 +51,10 @@ review can escalate a decision but never downgrade one.
 There is no pytest suite with fixtures and mocks. Self-checks are
 introduced as a small, readable, standalone script. Each of the self-checks
 is like a small readable standalone script. The test uses the actual methods
-and real inputs, even very minimal ones at times, and when it fails, it produces
-a clear and meaningful error that is not just stating the failure itself but also
+and real inputs, even very minimal ones at a time, and when it fails, it produces
+a clear error that is not just stating the failure itself but also
 pointing out the reasoning why the invariant matters. Every module touched during
-this project's latervsprints carries one of these self-checks (\textbf{edge.py},
+this project's later sprints carries one of these self-checks (\textbf{edge.py},
 \textbf{dataset.py}, \textbf{cascade.py}, \textbf{agent.py},
 \textbf{orchestrator.py}, \textbf{diagnosis.py},
 \textbf{orchestrator\_trainer.py},
@@ -71,7 +71,7 @@ connection.
 Two bugs were found and fixed directly through this discipline.
 \textbf{compute\_calibration\_delta()} in \textbf{edge.py}
 was subtracting an unsigned gap from raw confidence,
-instead of applying the signed, temperature-scaled correction. And
+instead of applying the signed, temperature-scaled correction.
 \textbf{TextClassificationDataset.shuffle\_train()} in
 \textbf{dataset.py} was shuffling a throwaway filtered copy of the
 training splits instead of the samples actually used for training. Both
@@ -88,95 +88,72 @@ present, for the parts where a fake cannot stand in for the real
 failure surface.
 
 \begin{itemize}
-\item \textbf{Multi-region live traffic test} (documented in
-\textbf{evaluation/multi-region-live-traffic-test-2026-08-05.md}). The
-three Docker services (edge gateway, cloud pod, orchestrator dashboard)
-were deployed to real GCE VMs across three regions via
-\textbf{deploy/gcp-up.sh}, and driven with real traffic. This is what
-surfaced a genuine gap that no unit-level test had caught. The cloud
-dispatch path in \textbf{cascade.py} had no \textbf{try/except} around
-the network call, unlike the edge path, which does. This has since been
-fixed. \textbf{\_dispatch()} now retries the cloud call once inside a
-\textbf{try/except}, then falls back to the already-computed edge
-result if it still fails (Section~\ref{design-development-and-implementation}, Cascade Controller). That is
-exactly the class of gap a live multi-region test can surface, and a
-self-check running against local fakes cannot.
+\item \textbf{Multi-region live traffic test} This test is documented in
+\textbf{evaluation/multi-region-live-traffic-test-2026-08-05.md}. The three docker 
+services were deployed to real Google Compute Engine Virtual Machine (GCE VM)
+across three regions using the script \textbf{deploy/gcp-up.sh}. This allowed to run
+tests with real traffic. \textbf{\_dispatch()} now retries the cloud call once inside a
+\textbf{try/except}, then falls back to the already-computed edge result if it
+still fails (Section~\ref{design-development-and-implementation}, Cascade Controller)
 \item \textbf{LLM diagnosis capability}. This was tested end-to-end against a
-real local Ollama instance (\textbf{gemma4:12b-it-qat}), not just the
-scripted stub used in self-checks. A synthetic \textbf{client\_babcock}
-distress scenario produced a coherent, correctly-parsed diagnosis in
-roughly 2.5 seconds once the model was warm. A first, cold-Ollama
-attempt timed out at the then-configured 15 seconds. That is why the
-provider's default timeout was raised to 20 seconds.
+real local Ollama instance (\textbf{gemma4:12b-it-qat}). A synthetic 
+\textbf{client\_babcock} distress scenario produced a coherent, 
+correctly-parsed diagnosis in roughly 2.5 seconds once the model was warm.
+A first, cold-Ollama attempt timed out at the then-configured 15 seconds. 
+That is why the provider's default timeout was raised to 20 seconds.
 \item \textbf{Websocket dashboard}. This was tested with a real
 \textbf{uvicorn} server, a real websocket client, and temporary
-action-log files, not just the in-memory fakes (\textbf{FakeWS},
-\textbf{DeadWS}, \textbf{FakeMonitor}) used in
-\textbf{orchestrator\_app.py}'s self-check.
+action-log files.
 \item \textbf{LLM governance review}. This was live-tested against real
-Ollama, using a real client's numbers (Section~\ref{design-development-and-implementation}'s ``LLM governance
-review''). It correctly escalated a \textbf{fine\_tune} decision to
+Ollama, using a simulated onboarding client's numbers (Section~\ref{design-development-and-implementation}'s 
+``LLM governance review''). It correctly escalated a \textbf{fine\_tune} decision to
 \textbf{train\_new}, given a genuine large SLA-violation gap, and gave
 a coherent justification for doing so.
-\item \textbf{Multi-region Kubernetes deployment} (documented in
-\textbf{evaluation/multi-region-gke-live-traffic-test-2026-09-02.md}).
-The three services were deployed via real \textbf{kubectl}-managed
-\textbf{Deployment}/\textbf{Service} manifests, onto one small GKE
-cluster per region. A single cluster cannot span the $\approx$250ms RTT to the
-Sydney region, so cross-region calls stay at the HTTP layer, the same
-as in the Docker path. This deployment ran the classifier-retrained
-policy (Section~\ref{misc-classifier-refit}), and handled 9,835 requests with zero errors and
-zero pod restarts across the full session.
+\item \textbf{Multi-region Kubernetes deployment}. This test was documented in
+\textbf{evaluation/multi-region-gke-live-traffic-test-2026-09-02.md}.
+It used real \textbf{kubectl}-managed \textbf{Deployment}/\textbf{Service}
+manifests, with one small GKE cluster per region. A single cluster
+can't span the $\approx$250ms RTT to Sydney, so cross-region calls stay
+at the HTTP layer, the same as in the Docker path. After running the
+classifier-retrained policy (Section~\ref{misc-classifier-refit}), it
+handled 9,835 requests, zero errors, zero pod restarts.
 
-The live escalation rate tracks the matching offline condition closely.
-For \textbf{client\_babcock} it was 2.5\% live against 3.5\% offline,
-and the other clients were within 0.2--0.7 points. These differences
-are explained by real network variance, not a regression. The matching
-offline condition uses the retrained policy paired with the untrained
-heuristic, not the trained classifier. \textbf{gateway/app.py} only
-reads a fitted classifier when \textbf{DEVMIND\_MISC\_CLASSIFIER\_PATH}
-is set, and this deployment deliberately left it unset. That classifier
-was fitted on the simulation's synthetic stress distribution, and it
-has never been validated against real \textbf{psutil} readings (Section~\ref{misc-classifier-refit}). So the live gateway and the offline simulation default to
-different classifiers. This is a disclosed scoping decision, not an
-oversight, and Section~\ref{misc-classifier-refit}'s comparison is what makes it a defensible
-one. The retrained policy turns out to be nearly insensitive to which
-of the two feeds it.
+Live escalation rates tracked the matching offline numbers closely:
+\textbf{client\_babcock} 2.5\% live against 3.5\% offline, the rest
+within 0.2--0.7 points, explained by real network variance.
+\textbf{gateway/app.py} only loads a fitted classifier when
+\textbf{DEVMIND\_MISC\_CLASSIFIER\_PATH} is set, and it was
+deliberately left unset. That classifier was fitted on the
+simulation's own synthetic stress distribution and has never been
+validated against real \textbf{psutil} readings. Leaving it off rested
+on two reasons. First, domain shift is not a guess here: the
+real-hardware classifier already collapsed to
+predicting \textbf{NOMINAL} almost every time when run in simulation
+(Section~\ref{classifier-status}). Trusting the reverse, untested,
+would repeat that mistake. Second, this deployment tests one thing:
+whether the retrained policy holds up live. Adding an unvalidated
+classifier too would confound that test.
+Section~\ref{misc-classifier-refit}'s comparison later showed the
+retrained policy barely cares which classifier feeds it anyway, which
+is what makes the choice defensible in hindsight.
 
-This deployment also ran Prometheus and Grafana as real Kubernetes
-workloads, scraping \textbf{prometheus\_client} metrics across all
-three regions. It surfaced two further gaps that a self-check running
-against local fakes cannot catch. First,
-\textbf{prometheus\_client}'s default \textbf{Histogram} buckets are
-calibrated for second-scale durations, and they silently degraded
-millisecond-scale latency quantiles until explicit buckets were set.
-Second, the orchestrator's live-monitoring view tails a local log file,
-and it needed an explicit HTTP-forwarding path
-(\textbf{CascadeController}'s \textbf{action\_log\_url}) once the
-gateway and orchestrator became separate pods rather than processes
-sharing one host. Both problems were fixed and verified against live
-cross-region traffic.
-
-One constraint remains, and it is disclosed rather than hidden. The GCP
-project's global \textbf{IN\_USE\_ADDRESSES} quota is 8, and this
-deployment's own 8 services already hold all of it. So Jaeger cannot
-also acquire an external IP. The pod runs, but its UI and OTLP endpoint
-are not externally reachable under this project's current quota.
+Prometheus and Grafana ran as real workloads, scraping metrics across
+all three regions. They surfaced two gaps no self-check catches.
+Prometheus's default histogram buckets are built for second-scale
+durations, and they were silently ruining millisecond latency numbers
+until explicit buckets were set. The orchestrator's live-monitoring
+view also needed an explicit HTTP-forwarding path, once the gateway and
+orchestrator became separate pods. GCP's global \textbf{IN\_USE\_ADDRESSES}
+quota (8) is already used up by this deployment's own services, so
+Jaeger runs but its UI and OTLP endpoint were not externally reachable.
 \end{itemize}
 
 \hypertarget{what-was-not-tested}{%
 \subsection{What was not tested}\label{what-was-not-tested}}
 
-The single-node EC2+Minikube deployment path
-(\textbf{deploy/ec2-minikube-setup.sh}) is checked into the repository.
-It looks plausible on inspection, but it has no live-test report to
-back it up. The 3-region GKE deployment above is the Kubernetes path
-that does have live-test evidence, using genuine multi-cluster
-Kubernetes rather than a single local cluster.
-
-The learned orchestrator meta-policy (Section~\ref{design-development-and-implementation}) was tested in one
-limited sense. Its integration code, safety fallback, and training loop
+The learned orchestrator meta-policy (Section~\ref{design-development-and-implementation}) 
+was tested in one limited sense. Its integration code, safety fallback, and training loop
 all pass self-checks, and were run against real training data. But it
 was never tested in the sense of producing a trusted live decision,
-because it never converged. That is reported here as a failure, not as
-a gap in test coverage.
+because it never converged. That is reported here as a failure. It is
+not treated as a gap in test coverage.

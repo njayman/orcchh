@@ -95,7 +95,10 @@ class CascadeController:
             )
         except Exception:
             self.edge.mark_unreachable()
-            return await self._unreachable_fallback(request_id, text, true_label, sla_budget_ms)
+            report = self.edge.last_report
+            if self.drift_listener is not None and report is not None:
+                self.drift_listener.notify(self.client_id, report)
+            return await self._unreachable_fallback(request_id, text, true_label, sla_budget_ms, report)
 
         report = self.edge.emit_report(
             edge_result.confidence,
@@ -187,7 +190,12 @@ class CascadeController:
                 pass
 
     async def _unreachable_fallback(
-        self, request_id: str, text: str, true_label: int | None, sla_budget_ms: float
+        self,
+        request_id: str,
+        text: str,
+        true_label: int | None,
+        sla_budget_ms: float,
+        report: EdgeContextReport | None = None,
     ) -> RequestOutcome:
         cloud_result = await self.cloud_client.predict(text, true_label)
         accuracy = float(cloud_result.is_correct) if true_label is not None else (
@@ -195,6 +203,21 @@ class CascadeController:
         )
         sla_met = cloud_result.latency_ms <= sla_budget_ms
         self.agent.reflect(cloud_result.latency_ms, sla_met, accuracy, "cloud", fallback=True)
+        if self.action_log_path or self.action_log_url:
+            loop = asyncio.get_running_loop()
+            loop.run_in_executor(
+                None,
+                self._log_action,
+                request_id,
+                Action.ESCALATE_TO_CLOUD,
+                "cloud",
+                cloud_result.latency_ms,
+                sla_met,
+                accuracy,
+                True,
+                report,
+                "edge_unreachable",
+            )
         return RequestOutcome(
             request_id=request_id,
             tier="cloud",
@@ -285,6 +308,61 @@ def demo() -> None:
         broken_controller._log_action("r3", Action.ROUTE_TO_EDGE, "edge", 50.0, True, 1.0, False, report=None)
         with open(log_path) as f:
             assert len(f.readlines()) == 3, "local write must still happen even if forwarding fails"
+
+        # Deadman's switch: edge_model.predict raising must mark the edge unreachable,
+        # notify the drift listener with an UNREACHABLE-flavored report, and log the
+        # fallback with fallback_reason="edge_unreachable" -- so the orchestrator
+        # dashboard's tail loop has something to key a live notification off.
+        class _FailingEdgeModel:
+            def predict(self, text: str, true_label: int | None) -> None:
+                raise RuntimeError("edge down")
+
+        class _StubCloudResult:
+            latency_ms = 40.0
+            is_correct = True
+            confidence = 0.9
+
+        class _StubCloudClient:
+            async def predict(self, text: str, true_label: int | None) -> _StubCloudResult:
+                return _StubCloudResult()
+
+        class _StubAgent:
+            def reflect(self, *args: Any, **kwargs: Any) -> None:
+                pass
+
+        unreachable_log = f"{tmp}/unreachable_log.jsonl"
+        edge = EdgeDevice()
+        edge.emit_report(0.9, is_correct=True, sla_budget_ms=300.0)  # seed a last_report to promote
+        listener = DriftEventListener(orchestrator=None, trust_floor=2.0, recovery_window_s=1.0)
+
+        deadman_controller = CascadeController.__new__(CascadeController)
+        deadman_controller.agent = _StubAgent()
+        deadman_controller.edge = edge
+        deadman_controller.edge_model = _FailingEdgeModel()
+        deadman_controller.cloud_client = _StubCloudClient()
+        deadman_controller.edge_timeout_s = 0.5
+        deadman_controller.client_id = "demo_client"
+        deadman_controller.drift_listener = listener
+        deadman_controller.action_log_path = unreachable_log
+        deadman_controller.action_log_url = None
+
+        async def _run() -> RequestOutcome:
+            outcome = await deadman_controller.process("r4", "some text", sla_budget_ms=300.0, true_label=1)
+            await asyncio.sleep(0.1)  # let the fire-and-forget log write land
+            return outcome
+
+        outcome = asyncio.run(_run())
+        assert outcome.fallback_triggered and outcome.tier == "cloud"
+
+        assert not listener._queue.empty(), "drift listener must be notified on edge-unreachable"
+        notified_client, notified_report, _ts = listener._queue.get_nowait()
+        assert notified_client == "demo_client"
+        assert notified_report.operational_state == OperationalState.UNREACHABLE
+
+        with open(unreachable_log) as f:
+            row = json.loads(f.readline())
+        assert row["fallback_reason"] == "edge_unreachable"
+        assert row["operational_state"] == "UNREACHABLE"
 
     print("cascade self-check passed")
 

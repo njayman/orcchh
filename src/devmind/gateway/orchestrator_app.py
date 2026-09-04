@@ -208,6 +208,21 @@ async def _tail_action_log_loop(app: FastAPI, monitor: EscalationDiagnosisMonito
                                 "latency_ms": row.get("latency_ms"),
                             },
                         )
+                        if row.get("fallback_reason") == "edge_unreachable":
+                            await _broadcast(
+                                app,
+                                {
+                                    "type": "notification",
+                                    "severity": "urgent",
+                                    "reason": "edge_unreachable",
+                                    "client": client_id,
+                                    "summary": f"Edge device unreachable for client '{client_id}'; request routed to cloud",
+                                    "likely_cause": "Edge inference call timed out, or the heartbeat has gone stale.",
+                                    "resource_recommendation": "Check edge device connectivity/health.",
+                                    "parsed_ok": True,
+                                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                                },
+                            )
                     offset = f.tell()
         await asyncio.sleep(_TAIL_POLL_INTERVAL_S)
 
@@ -768,6 +783,33 @@ def demo() -> None:
                 await task
             assert notified == [("c1", {"client": "c1", "action": "ESCALATE_TO_CLOUD", "sla_met": False})]
             assert any(m.get("type") == "escalation_point" for m in ws3.received)
+
+        # Deadman's-switch row (cascade.py's fallback_reason="edge_unreachable") must
+        # fire an urgent notification straight away, not wait on the sustained-window
+        # escalation monitor.
+        with tempfile.TemporaryDirectory() as tmp:
+            path = f"{tmp}/request_log.jsonl"
+            with open(path, "w") as f:
+                f.write(json.dumps({
+                    "client": "c2", "action": "ESCALATE_TO_CLOUD", "sla_met": False,
+                    "operational_state": "UNREACHABLE", "fallback_reason": "edge_unreachable",
+                }) + "\n")
+
+            ws4 = FakeWS()
+            fake_app4 = SimpleNamespace(state=SimpleNamespace(ws_clients={ws4}))
+            task = asyncio.create_task(_tail_action_log_loop(fake_app4, FakeMonitor(), path))
+            for _ in range(50):
+                if any(m.get("type") == "notification" for m in ws4.received):
+                    break
+                await asyncio.sleep(0.05)
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+            urgent = [m for m in ws4.received if m.get("type") == "notification"]
+            assert len(urgent) == 1, "edge-unreachable row must fire exactly one urgent notification"
+            assert urgent[0]["severity"] == "urgent"
+            assert urgent[0]["reason"] == "edge_unreachable"
+            assert urgent[0]["client"] == "c2"
 
     asyncio.run(_run())
     print("orchestrator_app self-check passed")

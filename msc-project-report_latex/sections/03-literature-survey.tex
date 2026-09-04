@@ -8,8 +8,7 @@ cascades}\label{confidence--and-budget-only-cascades}}
 BranchyNet (Teerapittayanon et al., 2016) installs side-branch
 classifiers on a deep network. A sample can leave early as soon as
 softmax entropy falls under a threshold chosen ahead of time to hit a
-target accuracy or speed, not a threshold learned end to end with the
-rest of the network. This idea has proven very fruitful. Early features
+target accuracy or speed. This idea has proven very fruitful. Early features
 are usually very discriminative for easy inputs, and the design is
 still the basis of most cascading systems built since. But the decision
 to exit the network is still a function of the input alone. BranchyNet
@@ -21,11 +20,10 @@ overloaded.
 MSDNet (Huang et al., 2018) takes the idea further. It supports both
 ``anytime'' and ``budgeted-batch'' classification, spending a fixed
 computational budget differently on easy and hard parts of an input
-within one model. This removes the need for separate networks per
+within one model. This removes the need for separate networks for each
 computation budget, which earlier systems required. But the budget
-itself is still a value the operator fixes ahead of time, not a
-measurement of the current infrastructure state. It cannot see the
-cloud queue growing, or an RTT spike that happened one second ago.
+itself is still a value the operator fixes ahead of time. It cannot see the
+cloud queue growing, or a RTT spike that happened one second ago.
 
 EdgeBERT (Tambe et al., 2021) is the closest developed system
 to infrastructure-aware routing. It links entropy-based early
@@ -42,7 +40,7 @@ SPINN (Laskaridis et al., 2020) splits a single deep network across the
 edge device and the cloud. It runs the early layers on-device and the
 rest on a cloud partner. Its scheduler co-optimises the early-exit
 policy and the split point at run time, reading live network bandwidth
-and latency alongside device and server load, so as to adapt to
+and latency alongside device and server load, to adapt to
 changing conditions and meet a user-defined service-level target.
 This project's own earlier draft description of SPINN as a fixed,
 split-once system was wrong, and SPINN is in fact the most 
@@ -62,9 +60,9 @@ routers}\label{learned-single-signal-routers}}
 RouteLLM (Ong et al., 2024) trains a router purely from human
 preference data, to distinguish between a stronger and a weaker LLM.
 The system shows more than a 2x cost reduction, and it also generalises
-well to model pairs the router has never seen in training. That is a
-significant result, and the closest deployed comparison for a learned
-router. But the only context RouteLLM knows is the prompt itself. It
+well to model pairs the router has never seen in training. That is the 
+closest deployed comparison for a learned router. 
+But the only context RouteLLM knows is the prompt itself. It
 has never seen the concept of serving-system load at all. From a
 RouteLLM router's viewpoint, a flooded cloud endpoint and a spare one
 would look the same, and would be routed the same way.
@@ -79,9 +77,9 @@ out a node once that queue exceeds a threshold, per request, at
 dispatch time. NSGA-II computes that threshold, and the rest of the 
 Pareto-optimal policy offline. The paper also describes refreshing it 
 only periodically, hourly or daily in its own example. So the router 
-is genuinely infrastructure-aware at the moment of dispatch,
-but the policy it applies is a slow-moving snapshot rather than 
-something that learns continuously. It also has no RTT signal and
+is infrastructure-aware at the moment of dispatch,
+but the policy it applies is a slow-moving snapshot,
+as opposed to something that learns continuously. It also has no RTT signal and
 no per-request SLA deadline check, only a queue-depth threshold, 
 and no closed loop feeding individual request outcomes back into
 the thresholds between re-optimisation cycles.
@@ -93,8 +91,7 @@ series of LLMs, and enforces a minimum level of accuracy.
 
 The study showed the model reaching accuracy within 1.3\% to 4.6\% of
 an oracle, with cost savings of up to 89.8\% compared to the best fixed
-model. That is a very impressive outcome for RL applied to routing. On
-the downside, PROTEUS's state space contains no information about
+model. On the downside, PROTEUS's state space contains no information about
 queues, latency, or energy. The algorithm trades off precision against
 cost without considering any of the infrastructure signals this
 project's routing is based on.
@@ -103,15 +100,14 @@ GreenServ (Ziller et al., 2026) is the closest of the three learned
 routers on the energy dimension. It routes each query to whichever
 model in a heterogeneous pool of large language models has historically
 balanced accuracy and energy use best for that query profile. It uses a
-multi-armed bandit that keeps learning online, rather than a policy
+multi-armed bandit that keeps learning online, in place of a policy
 fixed once at training time. That online adaptivity is exactly what
 BranchyNet, MSDNet and EdgeBERT lack. The context GreenServ conditions
 on is mostly on the query side (task type, semantic cluster, text
 complexity), plus its own model pool's observed accuracy and energy
 history. It also carries one latency term, but that term is an
-estimate, not a live measurement. It is derived from the task's
-configured maximum output-token setting, not from a real-time queue or
-network reading. So GreenServ still has no channel for cloud queue
+estimate. It is derived from the task's
+configured maximum output-token setting. So GreenServ still has no channel for cloud queue
 depth, network RTT, per-request SLA remaining, or the operational
 health of the requesting device. Two identical requests are routed
 identically by GreenServ, whether the infrastructure behind them is
@@ -130,7 +126,7 @@ latency violations, the same objective this project's SLA reward term
 carries.
 
 What limits it is that every signal it reads sits on the server. The
-state is queue occupancy and GPU memory utilisation, with nothing about
+state includes both queue occupancy and GPU memory utilisation, with nothing about
 the requesting device's own health or calibration, and the pool it
 routes across is edge-only. So the edge-cloud escalation decision does
 not arise for it at all. Its latency reward is a training-time shaping
@@ -203,8 +199,8 @@ None of this weakens the structural gaps identified above. Three of the
 four (RouteLLM, PROTEUS and GreenServ) still miss a cloud queue depth
 signal entirely, and none of the four carries an RTT signal or a
 per-request SLA deadline check, regardless of how their headline
-numbers were produced. But it is worth saying plainly that
-``RouteLLM cuts cost by 2x'' and ``PROTEUS gets within 1.3\% of oracle'' 
+numbers were produced. But it is ``RouteLLM cuts cost by 2x'' 
+and ``PROTEUS gets within 1.3\% of oracle'' 
 are results tied to a specific benchmark, preference-data source, or 
 accuracy-target range. They are not general claims this project's own
 results should expect to match or beat on a like-for-like basis.
@@ -216,7 +212,7 @@ landscape}\label{commercial-and-open-source-landscape}}
 The ten academic systems above are not the only relevant comparison. A
 mature market of ``LLM gateway'' products already solves a version of the
 same routing problem in production. A fair positioning has to account
-for what they actually do, not just what research papers propose. Two
+for what they actually do, beyond what the literature proposes. Two
 of the most widely deployed products were checked against their own
 documentation.
 
@@ -235,7 +231,7 @@ and failures.
 Even so, every one of its strategies is a fixed rule evaluated against
 a rolling window of recent responses. None of them is a learned policy.
 None reads a self-reported edge-device health or calibration state
-either. Since LiteLLM routes between cloud model endpoints rather than
+either. Since LiteLLM routes between cloud model endpoints instead of
 edge devices, there is no analogous self-report to read. And no
 strategy enforces a per-request deadline before dispatch. A request
 goes to whichever deployment the current rule favours, and if that
@@ -248,9 +244,9 @@ optimisation or gradual migration testing. These weights are normalised
 to sum to 100\%. They are not based on a live queue, latency, or health
 signal measured at request time. Portkey's own documentation for this
 feature makes no mention of reinforcement learning, closed-loop
-adaptation from outcomes, or per-request SLA enforcement. Those stay
+adaptation from outcomes, or per-request SLA enforcement. Those remain
 configuration choices the operator makes up front. They are not
-decisions the gateway itself learns or adapts.
+decisions that the gateway itself learns or adapts.
 
 The wider landscape (Envoy AI Gateway, Requesty, and Martian's
 now-discontinued standalone ``intelligence router'') occupies similar
@@ -274,15 +270,14 @@ only. So it narrows the gap on live telemetry specifically, without
 closing the other two.
 
 None of these products is edge-cloud specific in the way this project
-is. They route between cloud model providers, not between a
+is. They route between cloud model providers, as opposed to a
 resource-constrained edge device and a cloud fallback. So the
 edge-health self-report, the deadman's switch, and the bidirectional
 trust loop described in Section~\ref{design-development-and-implementation} have no commercial analogue to
 compare against at all, OpenRouter included.
 
 This is independently confirmed by Li et al. (2025), a systematic
-survey of edge-cloud LLM collaboration published within weeks of this
-project's own evaluation work. It states plainly that it is building
+survey of edge-cloud LLM collaboration. It states plainly that it is building
 ``the first systematic foundation'' for a unified taxonomy of edge-cloud
 collaboration. Its taxonomy is organised around task assignment, task
 division, and mixture-based collaboration, and it contains no category
@@ -299,7 +294,7 @@ from the academic literature and two production LLM gateways. It
 compares them against three properties that recur through this
 chapter. Does the routing signal include anything beyond the request
 itself (infrastructure awareness)? Is a per-request deadline checked
-before dispatch, not just an aggregate SLA target? Does the outcome of
+before dispatch or just an aggregate SLA target? Does the outcome of
 a routing decision change the state the next decision is made from (a
 closed loop)? No system reviewed combines cloud queue depth, a live
 per-request SLA-remaining check, an edge device's own self-reported
@@ -309,7 +304,8 @@ SPINN re-profiles its split point from live network, device and server
 load. The NSGA-II router reads live per-request queue depth against
 offline-tuned thresholds. Splitwise reads cluster-level phase
 telemetry. GreenServ keeps its bandit learning online. That specific
-combination of signals, not any one of them alone, is the gap Section~\ref{design-development-and-implementation}'s design targets.
+combination of signals is the gap Section~\ref{design-development-and-implementation}'s design
+targets.
 
 {\small\setlength{\tabcolsep}{4pt}
 \begin{longtable}{p{2.3cm}p{2.9cm}p{1.5cm}p{1.5cm}p{1.3cm}p{3.2cm}}
@@ -370,9 +366,9 @@ Each one maps directly onto a specific component of the design in
 Section~\ref{design-development-and-implementation}. These are not claims added after the literature was read.
 They were the reason each component was built.
 
-First, most of the confidence- or budget-only cascades (BranchyNet,
-MSDNet, EdgeBERT) read no live infrastructure state at all. SPINN is
-the exception among them, reading live network, device and server load
+First, three of the four confidence- or budget-only cascades
+(BranchyNet, MSDNet, EdgeBERT) read no live infrastructure state at
+all. SPINN is the exception among them, reading live network, device and server load
 to re-profile its split point, but it still stops short of a cloud
 queue depth or SLA-remaining signal, and it carries nothing self-
 reported from the edge device between requests. Among the learned and
@@ -395,11 +391,11 @@ against those thresholds. Neither system carries a live RTT signal or a
 per-request SLA-remaining figure. The PPO agent in this project is also
 trained offline, but its state and reward both carry the current
 request's own SLA remaining and predicted RTT, at request-time
-granularity, refreshed every request rather than every hour or day.
+granularity, refreshed every request instead of every hour or day.
 None of the twelve systems above combines a live per-request queue and
 RTT reading with an SLA-remaining signal the way this project's Gold
 vector does. Splitwise comes closest on live telemetry at
-cluster granularity, not per request, and without an SLA-remaining
+cluster granularity and without an SLA-remaining
 component. This is still a learned preference the policy weighs against
 everything else. Section~\ref{design-development-and-implementation} is explicit about that distinction. 
 It even names a Silver-layer signal that was computed for a harder 
@@ -413,6 +409,5 @@ its bandit online. LiteLLM adapts its latency cache and cooldown
 window. But none of them feeds the outcome of one routing decision back
 into the state the next decision is made from, at the level of a
 single device. The Bidirectional Loop in Section~\ref{design-development-and-implementation} is built against
-that gap. Its removal is measured directly, not just asserted, in
-Ablation Run 4 (Section~\ref{ablation}).
+that gap. Its removal is measured directly in Ablation Run 4 (Section~\ref{ablation}).
 

@@ -9,29 +9,28 @@ al., 2004). The choice follows from the research question itself. Section~\ref{p
 static passive threshold. That question can only be answered by building 
 the artefact and measuring it against the alternatives. It cannot be settled
 by observation or by survey because no surveyed system combines the properties
-being asked about (Section~\ref{literature-survey}). This is why DSR approach was choosen.
+being asked about (Section~\ref{literature-survey}). This is why the DSR approach was chosen.
 
 DSR produces two outputs here. The artefact is the context-aware agentic
 gateway. The knowledge contribution is the six-item list of features,
 benefits and capabilities set out in Section~\ref{contributions}. Each item there is
-checked against a specific evaluation output, not just declared.
+checked against a specific evaluation output.
 
-The build-evaluate loop ran three times rather than once. The first
+The build-evaluate loop ran three times. The first
 trained policy was undertrained and was silently overridden by its own
 safety fallback. The second was corrected for that but had no reward
 gradient once an SLA was already violated. The third fitted the
 \textbf{MiscalibrationClassifier} on non-circular data and retrained the
 policy under it. Each cycle was triggered by an evaluation result rather
 than by a change of plan, which is the build-evaluate loop working as
-intended. All three are reported in Sections 5 and 7 rather than
-presented as a single clean run.
+intended. All three are reported in Sections 5 and 7.
 
 \hypertarget{project-phases}{%
 \subsection{Project phases}\label{project-phases}}
 
 The project ran over fifteen weeks across ten phases. Table~\ref{tab:phases}
 lists the four that map onto the DSR build-evaluate loop. P1, P2, P6 and
-P10 are supervisor selection, the proposal, infrastructure setup and the
+P10 are the supervisor selection, the proposal, the infrastructure setup and the
 poster/viva respectively. These are administrative or infrastructural phases
 in the loop and they are not repeated here.
 
@@ -53,7 +52,7 @@ Bronze, Silver and Gold layers wired into the live request path \\
 P8 & 11--13 & Evaluation \& Benchmarking & Evaluate cycle: five core
 baselines, eight literature baselines, three scenarios, the seven-run
 ablation (Section~\ref{evaluation-strategy}) \\
-P9 & 9--14 & Dissertation Writing & Ran alongside P7 and P8 rather than
+P9 & 9--14 & Dissertation Writing & Ran alongside P7 and P8, instead of
 after them \\
 \bottomrule
 \end{longtable}}
@@ -65,14 +64,13 @@ is the gateway itself.
 \subsection{Deviations from the plan}\label{deviations-from-the-plan}}
 
 DSR expects the artefact to change under evaluation. Six planned choices
-were not carried through, and each is recorded here rather than left for
-a reader to notice.
+were not carried.
 
 The proposal specified three independent runs per condition. The
 evaluation reports one run per policy per scenario (\textbf{n\_runs=1}). 
 Real HuggingFace CPU inference over 1,000 samples for every policy in every 
 scenario made three runs unaffordable inside P8's two weeks, and the choice 
-was to keep real inference rather than keep the repeat count.
+was to keep real inference, in place of the repeat count.
 
 The proposal specified energy measurement through Intel RAPL. Energy is
 instead a simulated proxy computed in \textbf{environment.py}. RAPL was
@@ -84,10 +82,9 @@ deployments instead co-locate the agent in the same process as the
 gateway. Neither is a literal sidecar, and Section~\ref{design-development-and-implementation}'s Deployment
 subsection states the distinction plainly.
 
-The proposal specified a TorchServe cloud pod and a Minikube deployment.
-The cloud pod is a FastAPI service, and the Kubernetes path is a
-three-region GKE deployment. The single-node EC2 and Minikube path is
-checked into the repository but has no live-test evidence (Section~\ref{testing}).
+The proposal specified a TorchServe cloud pod and a Minikube
+deployment. Neither was used. The cloud pod is a FastAPI service, and
+the Kubernetes path is a three-region GKE deployment.
 
 The proposal specified F1 as the quality metric. Accuracy is reported
 instead, because every policy sees the identical capped test set in the
@@ -100,7 +97,7 @@ comparisons and accuracy separates the policies on the same evidence.
 The dataset selected for this experiment is Jigsaw toxicity classification
 (\texttt{tasksource/jigsaw\_toxicity}, the \texttt{comment\_text} field
 against the \texttt{toxic} label). It was chosen because it has a real
-difficulty gradient. A weak and a strong model genuinely disagree on the
+difficulty gradient. A weak and a strong model disagree on the
 harder comments, so the routing decision has something to be right or
 wrong about. A task where both models agree everywhere would make every
 routing policy look identical.
@@ -113,37 +110,44 @@ CPU. The pair was chosen so that the accuracy gap is real and the latency
 cost of escalating is also real. Escalation therefore carries a genuine
 trade-off rather than a free accuracy gain.
 
-Inference is real HuggingFace CPU inference throughout, so the accuracy figures 
-reflect how these two models actually behave on held-out samples. 
-The dataset is loaded once, shuffled under a fixed seed, and split 70/10/20 
-into train, validation and test. Each evaluation run draws from the test split
-at \textbf{max\_samples=1000}, and every policy sees the same capped set in
-the same order.
+Inference is real HuggingFace CPU inference throughout the evaluation, 
+so the accuracy figures  reflect how these two models actually behave on
+held-out samples. The dataset is loaded once, shuffled under a fixed seed,
+and split 70/10/20 into train, validation, and test. Each evaluation run draws
+from the test split at \textbf{max\_samples=1000}, and every policy sees the
+same capped set in the same order.
 
-Three metrics, namely Queue depth, RTT and energy are generated by the
-Gymnasium simulation. Simulating a saturated cloud queue or a sustained
-800ms RTT reproducibly on real infrastructure was not affordable, and a 
-simulated signal that can be held identical across every policy is worth
-more to a controlled comparison than a real signal that varies between runs. 
+Queue depth, RTT and energy come from the Gymnasium simulation instead
+of real infrastructure. Reproducing a saturated cloud queue or a
+sustained 800ms RTT reliably on real hardware was not affordable
+within this project's timeline. The simulated signal is controllable,
+but it still varies between runs, since the simulator draws its own
+random stress values each time.
 
 \hypertarget{validity}{%
 \subsection{Validity}\label{validity}}
 
-\textbf{Internal validity.} Every comparison holds the models, the
-dataset and the traffic simulation fixed, and varies only the routing
-policy. A difference in the numbers can therefore only be attributed to
-the routing decision, a different dataset or different hardware. This is
-also the reason why the eight literature baselines are re-implementations
-run through this harness rather than figures quoted from their original papers.
+\textbf{Internal validity.} Every comparison uses the same models, the
+same dataset and the same scenario settings, and only the routing
+policy changes between runs. The simulator's own random stress draws
+(CPU, thermal, memory, disk) are not seeded, so each policy's
+environment gets its own random sequence instead of an identical one.
+A difference in the numbers reflects the routing decision under
+matched conditions. This is also the reason why the eight literature
+baselines are re-implementations run through this harness, in place of
+figures quoted from their original papers.
 
 \textbf{External validity.} Training uses domain randomisation.
 \textbf{randomize\_scenario()} resamples twelve \textbf{ScenarioConfig}
 fields before every 2,048-step rollout, so the policy sees roughly 49
-distinct scenarios across a 100,000-step run rather than one fixed
-scenario. The held-out scenario (Ablation Run 6) is then set deliberately
-outside the range those rollouts sample, so a good result there is
-evidence that the policy learned the decision problem rather than the
-training scenarios.
+distinct scenarios across a 100,000-step run instead of one fixed
+scenario. The held-out scenario (Ablation Run 6) pushes burst rate,
+degraded RTT and cloud service time past the training range, and sets
+edge stress and degrade probability right at its edge. The remaining
+fields stay inside the range the training rollouts sample. So a good
+result there is evidence the policy learned something beyond the
+specific scenarios it trained on, even though the test is not
+out-of-distribution on every axis.
 
 \textbf{Construct validity.} Four of the eight recorded metrics are terms
 in the reward function the policy was trained against. The other four,
@@ -153,7 +157,7 @@ be distinguished from the evaluation simply re-measuring the training objective.
 
 \textbf{Reliability.} Each policy is run once per scenario, so no
 confidence intervals are reported and no significance test is run. Small
-differences should be read as indicative rather than established. A gap
+differences should be read as indicative, as opposed to definitive. A gap
 of one to two accuracy points on 1,000 samples is within the range a
 single run cannot separate from noise, and this report does not treat
 such gaps as findings. The claims it does make rest on effects that are
@@ -184,4 +188,5 @@ and no new data was collected or redistributed. All models are
 pre-trained checkpoints obtained from the HuggingFace Hub and used
 without modification. The synthetic clients in Ablation Run 7
 (\textbf{client\_nhs}, \textbf{client\_babcock} and the others) are
-fictional load profiles, not real organisations or their data.
+fictional load profiles. No real organisation or its data is
+involved.

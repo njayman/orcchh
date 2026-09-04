@@ -94,9 +94,6 @@ spec:
           image: grafana/grafana:11.2.0
           ports:
             - containerPort: 3000
-          # Anonymous admin auth, no TLS -- fine for a short-lived
-          # evaluation cluster torn down after the live test; add real auth
-          # if this ever becomes a persistent deployment.
           env:
             - name: GF_AUTH_ANONYMOUS_ENABLED
               value: "true"

@@ -1,21 +1,3 @@
-"""Experiment: can MiscalibrationClassifier.fit() be trained on genuinely
-non-circular data, rather than on labels derived from the same fixed
-threshold heuristic it exists to replace?
-
-Method: real CPU/thermal load is induced locally via background worker
-processes (not simulated numbers), cycled through idle / moderate / heavy
-phases. Real Jigsaw test-set requests (with true_label) run through the real
-DistilBERT edge model throughout, using EdgeDevice's real rolling error-rate
-tracking (last 60 outcomes, the same mechanism the live gateway uses).
-
-The critical methodological choice: labels are derived ONLY from real
-observed accuracy relative to an idle-measured baseline -- never from the
-resource-stress readings themselves. Resource stress + rolling error rate are
-the features (X); a real accuracy-drop signal is the label (y). This is what
-makes it non-circular: nothing about how the label is assigned depends on the
-fixed thresholds (cpu_thermal > 0.85 etc.) used by the heuristic being
-replaced.
-"""
 from __future__ import annotations
 
 import json
@@ -110,11 +92,6 @@ def collect(
 
 
 def label_from_accuracy(collected: list[Sample], baseline_error_rate: float, window: int = 20) -> list[str]:
-    """Assigns operational_state labels purely from a trailing window of REAL
-    correctness relative to the idle baseline -- never from resource_stress.
-    This is the non-circularity guarantee: swap this function's inputs for
-    resource readings and the whole experiment collapses back into training
-    the heuristic to imitate itself."""
     labels: list[str] = []
     for i in range(len(collected)):
         lo = max(0, i - window + 1)
@@ -138,11 +115,6 @@ def main() -> None:
     samples = dataset.test if len(dataset.test) > 200 else (dataset.test * 50)
 
     n_cores = os.cpu_count() or 8
-    # Biased schedule: measure the idle baseline once (briefly), a short moderate
-    # phase for STRESSED examples, then spend almost all remaining time fully
-    # saturating every core -- DEGRADING examples were the rare class (0.3% of
-    # the original even-split run), so nearly all collection time should go
-    # toward the condition that actually produces them, not repeated baselines.
     phases = [
         ("idle", 0, 60),
         ("moderate", max(1, n_cores // 2), 90),
@@ -173,9 +145,6 @@ def main() -> None:
         result = {"viable": False, "reason": "degenerate_single_class", "label_distribution": dict(Counter(labels))}
     else:
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=0, stratify=y)
-        # class_weight='balanced' reweights the loss inversely to class frequency --
-        # the standard fix for severe imbalance (DEGRADING was ~0.3% of samples),
-        # rather than just accumulating more data at the same imbalanced ratio.
         clf = LogisticRegression(max_iter=1000, class_weight="balanced")
         clf.fit(X_train, y_train)
         y_pred = clf.predict(X_test)
@@ -205,9 +174,6 @@ def main() -> None:
         print(f"labels: {labels_order}")
         print(f"confusion matrix:\n{cm}")
 
-        # Viable means genuinely better than chance across ALL classes, not just
-        # riding majority-class accuracy: balanced accuracy clears chance level,
-        # and the rare-but-critical DEGRADING class is recalled at all.
         result = {
             "viable": bool(bal_acc > (1.0 / len(labels_order)) + 0.1 and per_class_recall.get("DEGRADING", 0) > 0),
             "n_samples": len(collected),

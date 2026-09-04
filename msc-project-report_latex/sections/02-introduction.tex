@@ -26,9 +26,13 @@ infrastructure. EdgeBERT (Tambe et al., 2021) does react to the state of
 the hardware. But it only looks at its own chip's entropy and
 voltage-frequency envelope.
 
-A second failure mode, Failure B, sits on top of the first. Present day
-cascade systems can run the same fixed enrichment pipeline over every
-request. But no outcome ever travels back to it. The system does not
+A second failure mode, Failure B, sits on top of the first. Self-managing
+system architectures typically close this kind of gap with an explicit
+feedback path, most classically the monitor-analyse-plan-execute loop
+used in autonomic computing (Kephart and Chess, 2003). Present day
+cascade systems have no equivalent. They can run the same fixed
+enrichment pipeline over every request, but no outcome ever travels
+back to it. The system does not
 know whether the SLA was met or not, or whether the cloud could have
 handled the request better. So the next request is handled in the same
 way for similar conditions. They have no pipeline where the decisions
@@ -37,7 +41,7 @@ path where the outcome of the decision is reported back to the router.
 
 This whole scenario motivates the research question behind this project.
 What is gained by replacing static, passive threshold based routing with
-a genuinely active orchestration system that can see live data about its
+an orchestration system that can see live data about its
 environment and reason over it to take actions and in the end, weigh the
 outcomes of those actions?
 
@@ -76,19 +80,20 @@ outcomes of those actions?
 
 \begin{enumerate}
 \def\labelenumi{\arabic{enumi}.}
-\item \textbf{Edge as an actor: }The Edge Context Protocol is a new way
-of designing edge devices. Instead of just returning predictions, the
-device actively reports its own calibration state. This closes Failure
-A, a whole class of error that BranchyNet, MSDNet, EdgeBERT and RouteLLM
-cannot even detect.
-\item \textbf{Medallion Pipeline with Dynamic Components}: A pipeline
-that changes what it measures per request, driven by data from the edge.
-Which slots of the state vector carry a value varies, while the vector's
-own dimension stays fixed at 13.
+\item \textbf{Edge as an actor:} By providing an alternative approach
+to edge devices with the Edge Context Protocol, devices will do more
+than just return predictions. They will actively report their own
+calibration status and, this way, close Failure A, a category of
+error that these systems, such as BranchyNet, MSDNet, EdgeBERT, and
+RouteLLM can't even detect.
+\item \textbf{Medallion Pipeline with Dynamic Components:} A pipeline
+that measures different things per request, per the situation and
+input from the edge. Which positions in the state vector contain a
+value changes, while the dimension of the vector itself remains fixed
+at 13.
 \item \textbf{SLA remaining and predicted RTT as per-request signals at
 routing level}: Every routing decision sees the current request's own
-SLA remaining and predicted network RTT, not an aggregate cluster-level
-budget. That granularity is missing from Splitwise (cluster/phase-level
+SLA remaining and predicted network. That granularity is missing from Splitwise (cluster/phase-level
 scheduling) and every other cascade baseline studied here. It is a soft,
 learned preference. The reward function penalizes an SLA violation
 directly, but nothing yet blocks a doomed escalation before it happens.
@@ -103,11 +108,10 @@ and registration shape. It is not an implementation of the Model Context
 Protocol wire format, as Section~\ref{design-development-and-implementation} states plainly.
 \item \textbf{Two-way agent loop}: Escalation outcomes feed back into
 the edge\textquotesingle s own context state within the request
-life-cycle itself, not only through a slow offline retraining loop that
-doesn\textquotesingle t exist in this design. Together with the dynamic
+life-cycle itself. Together with the dynamic
 pipeline above, this addresses Failure B. Ablation Run 4 measures the
 loop\textquotesingle s effect directly. Under the retrained policy that
-effect is small, which Section~\ref{conclusion} reports rather than claims as a result.
+effect is small, which Section~\ref{conclusion} reports instead of claiming as a result.
 \item \textbf{Policy Orchestration Layer}: This is a governance layer
 above the fleet. For every client, it decides whether to reuse,
 fine-tune, or train a new policy. That decision is backed by the

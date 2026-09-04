@@ -1,5 +1,3 @@
-# Test knobs for scenario replay (bursty / degraded-network) during AWS
-# testing. Leave both unset (delete the key) for real measured behavior.
 apiVersion: v1
 kind: ConfigMap
 metadata:

@@ -5,10 +5,6 @@ metadata:
   namespace: devmind
 spec:
   replicas: 1
-  # Recreate, not the default RollingUpdate: these single-node clusters don't
-  # have headroom for 2x replicas during a redeploy (see the ImagePullBackOff/
-  # Insufficient-cpu deadlock this caused during initial deploy). A few
-  # seconds of downtime while iterating on a mutable :test tag is fine here.
   strategy:
     type: Recreate
   selector:
